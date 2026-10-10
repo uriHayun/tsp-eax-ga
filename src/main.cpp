@@ -9,77 +9,145 @@
 #include <algorithm>
 #include <asio.hpp>
 #include <cassert>
+#include <chrono>
 #include <cstddef>
+#include <cstdlib>
 #include <curl/curl.h>
+#include <filesystem>
 #include <format>
 #include <fstream>
-#include <numeric>
+#include <iostream>
+#include <limits>
 #include <nlohmann/json.hpp>
+#include <numeric>
+#include <optional>
 #include <print>
 #include <random>
 #include <ranges>
 #include <stdexcept>
+#include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
-#include <string>
+#include <whereami++.hpp>
+
+#if defined(_WIN32)
+    #include <windows.h>
+#else
+    #include <unistd.h>
+#endif
+
+#if defined(__APPLE__)
+    // Required to resume with TARGET_OS_OSX (macOS)
+    #include <TargetConditionals.h>
+#endif
 
 using Json = nlohmann::json;
-
-constexpr std::size_t MAX_GEN_COUNT = 1000;
 
 int main() {
 
 }
 
-// Transfers the cities array once, and a tour each generation to Lua LÖVE2D to draw
-// using an Asio TCP socket as an IPC server connection
-void run_ipc_server() {
+// Transfers the cities array once, and a tour each generation to Lua LÖVE2D in order to draw later
+// using a standalone Asio TCP socket as an IPC local server connection
+void run_ipc_server(const std::size_t MAX_GEN_COUNT = 1000) {
     using namespace Tsp;
     using namespace Tsp::Ga;
     using tcp = asio::ip::tcp;
 
     asio::io_context io;
 
-    // Requests dynamic private port number from the OS
-    constexpr unsigned short PORT_NUM = 0;
-
-    tcp::acceptor acceptor(io,
-        tcp::endpoint(tcp::v6(), PORT_NUM));
-
-    // Allow IPv4 connections as well as IPv6
-    acceptor.set_option(asio::ip::v6_only(false));
-
+    // Declare variables at top scope, so they survive try-catch blocks
+    // Note: std::optional acts as a pointer
+    std::optional<tcp::acceptor> acceptor;
     tcp::socket socket(io);
+    std::optional<Cities> cities;
 
-    // Block execution until LÖVE2D connects
-    acceptor.accept(socket);
-    std::println("Connected!");
+    try {
+        acceptor.emplace(io, tcp::endpoint(tcp::v6(), 0));
 
-    // Disable Nagle's algorithm so tours are sent immediately instead of being buffered
-    socket.set_option(tcp::no_delay(true));
+        // Allow IPv4 connections as well as IPv6
+        acceptor->set_option(asio::ip::v6_only(false));
 
-    // Build & send once the cities array to LÖVE2D
-    Cities cities = load_cities();
-    asio::write(socket, asio::buffer(cities_to_json(cities)));
+        // Actual dynamic, private port number from the OS
+        const unsigned short port_num = acceptor->local_endpoint().port();
 
-    auto [pop, fitness_scores, rng] = init_ga(cities);
+        std::println("IPC server connection listening on port: {}", port_num);
 
-    std::size_t gen_count = 0;
-    double last_tour_len = std::numeric_limits<double>::max();
+        Utils::launch_frontend(port_num);
+    }
+    catch (const asio::system_error &e) {
+        std::println(std::cerr, "Network initialization failed: {}", e.what());
+        return;
+    }
+    catch (const std::exception &e) {
+        std::println(std::cerr, "Failed to launch LÖVE2D frontend: {}", e.what());
+        return;
+    }
 
-    // Temporary end-condition, later will benchmark/further check
-    while (gen_count < MAX_GEN_COUNT) {
-        Tour curr_tour = run_gen(pop, fitness_scores, rng, cities);
-        gen_count++;
+    try {
+        bool connected = false;
+        std::error_code accept_ec;
 
-        double curr_tour_len = tour_len(curr_tour, cities);
+        acceptor->async_accept(socket, [&](const std::error_code &ec) {
+            accept_ec = ec;
+            connected = true;
+        });
 
-        if (curr_tour_len < last_tour_len) {
-            last_tour_len = curr_tour_len;
+        // Block execution until LÖVE2D connects
+        constexpr std::chrono::seconds LOVE2D_CONN_TIMEOUT(10);
+        io.run_for(LOVE2D_CONN_TIMEOUT);
+
+        if (!connected) {
+            acceptor->cancel();
+            throw std::runtime_error(std::format("LÖVE2D didn't connect in time ({})", LOVE2D_CONN_TIMEOUT.count()));
         }
 
-        // Send the chosen tour to LÖVE2D to draw each generation
-        asio::write(socket, asio::buffer(tour_to_json(curr_tour)));
+        if (accept_ec) {
+            throw std::system_error(accept_ec, "Failed to accept connection from LÖVE2D");
+        }
+
+        std::println("Connected!");
+
+        // Disable Nagle's algorithm so tours are sent immediately instead of being buffered
+        socket.set_option(tcp::no_delay(true));
+
+        // Build & send once the cities array to LÖVE2D
+        cities = load_cities();
+        asio::write(socket, asio::buffer(cities_to_json(*cities)));
+    }
+    catch (const std::system_error &e) {
+        std::println(std::cerr, "TCP handshake failed: {}", e.what());
+        return;
+    }
+    catch (const std::exception &e) {
+        std::println(std::cerr, "Failed to load cities: {}", e.what());
+        return;
+    }
+
+    try {
+        auto [pop, fitness_scores, rng] = init_ga(*cities);
+
+        std::size_t gen_count = 0;
+        double last_tour_len = std::numeric_limits<double>::max();
+
+        // Temporary end-condition, later will benchmark/further check
+        while (gen_count < MAX_GEN_COUNT) {
+            Tour curr_tour = run_gen(pop, fitness_scores, rng, *cities);
+            gen_count++;
+
+            double curr_tour_len = tour_len(curr_tour, *cities);
+
+            if (curr_tour_len < last_tour_len) {
+                last_tour_len = curr_tour_len;
+            }
+
+            // Send the chosen tour to LÖVE2D to draw each generation
+            asio::write(socket, asio::buffer(tour_to_json(curr_tour)));
+        }
+    }
+    catch (const asio::system_error &e) {
+        std::println(std::cerr, "LÖVE2D disconnected mid-simulation: {}", e.what());
     }
 }
 
@@ -131,6 +199,91 @@ std::string read_env_value(const std::string &key) {
     return "";
 }
 
+// Launches LÖVE2D window with a port connection number argument
+// (supports all widely-used OSs: Windows, macOS, Linux based OSs (e.g., ChromeOS))
+void launch_frontend(const unsigned short PORT_NUM) {
+    using path = std::filesystem::path;
+
+    path love2d_path;
+    path bin_dir = path(whereami::executable_path()).parent_path();  // Program folder
+    path lua_dir = bin_dir / "lua";  // Lua folder
+
+    auto love2d_path_exists = [&]() {
+        if (!std::filesystem::exists(love2d_path)) {
+            throw std::runtime_error(std::format("Failed to launch LÖVE2D frontend: {} not found",
+                love2d_path.string()));
+        }
+    };
+
+    // Launch LÖVE2D for Windows using Win32 API
+    #if defined(_WIN32)
+        love2d_path = bin_dir / "love.exe";
+        love2d_path_exists();
+
+        // std::wstring, non-constant string required for .data() for CreateProcessW() (launch function)
+        std::wstring cmd = std::format(L"\"{}\" \"{}\" {}",
+            love2d_path.wstring(),
+            lua_dir.wstring(),
+            std::to_wstring(PORT_NUM));  // Gets loaded as "arg" in love.load(arg)
+
+        // Windows API's CreateProcessW() (launch function) configuration
+        STARTUPINFOW si = { sizeof(si) };  // Default configuration for window - LÖVE2D configures its own window
+        PROCESS_INFORMATION pi;           // Empty container to receive LÖVE2D process info from Windows
+        ZeroMemory(&pi, sizeof(pi));      // Remove garbage data from RAM to prevent bugs & crashes
+
+        if (!CreateProcessW(
+            nullptr,     // Omitted app name
+            cmd.data(),  // Launch command <LÖVE2D path, Lua directory, arg>
+            nullptr,     // Main container cannot be inherited by child processes
+            nullptr,     // Execution engine cannot be inherited by child processes
+            FALSE,       // Starts fresh - no inherited handles
+            0,           // Opens as a normal desktop window with no special flags
+            nullptr,     // Uses same environment variables as this process (C++ backend)
+            nullptr,     // Uses same working directory as this process (C++ backend)
+            &si,         // Startup configuration for LÖVE2D process
+            &pi          // Receives LÖVE2D process info from Windows
+        )) {
+            throw std::runtime_error(std::format("Failed to launch LÖVE2D frontend: {}", GetLastError()));
+        }
+
+        // Clean up handles - prevent memory leaks
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+
+    // Launch LÖVE2D window for macOS & Linux based OSs
+    #elif TARGET_OS_OSX || defined(__linux__)
+        love2d_path = bin_dir / "love";
+        love2d_path_exists();
+
+        pid_t pid = fork();
+
+        // Failed to launch LÖVE2D frontend - couldn't create a new child process
+        if (pid < 0) {
+            throw std::runtime_error("Failed to launch LÖVE2D frontend: couldn't create a new child process");
+        }
+
+        // LÖVE2D is the child process - C++ backend can compute more tours 
+        // (while LÖVE2D draws the previous tour)
+        if (pid != 0) {
+            return;
+        }
+
+        // Create LÖVE2D child process which runs simultaneously with the C++ backend
+        execl(love2d_path.c_str(),               // Program path to launch (LÖVE2D)
+              love2d_path.c_str(),               // argv[0]: program name (LÖVE2D)
+              lua_dir.c_str(),                   // argv[1]: Lua directory folder
+              std::to_string(PORT_NUM).c_str(),  // argv[2]: port number argument - gets loaded in "arg" in love.load(arg)
+              static_cast<char *>(nullptr));     // Terminate argument list
+
+        // Terminate child process - reached only if execl() fails
+        _exit(EXIT_FAILURE);
+
+    // Unsupported OS - not Windows, macOS, or Linux based
+    #else
+        throw std::runtime_error("Failed to launch LÖVE2D frontend: unsupported OS");
+    #endif
+}
+
 }  // Closing namespace Tsp::Utils
 
 namespace Tsp {
@@ -150,7 +303,7 @@ double tour_len(const Tour &tour, const Cities &cities) {
 }
 
 //
-Cities load_cities(const size_t &NUM_CITIES) {
+Cities load_cities(const std::size_t &NUM_CITIES) {
     CURL *curl = curl_easy_init();
     if (!curl) {
         // HTTP request failed
@@ -368,7 +521,7 @@ Tours build_init_pop(const Cities &cities, std::mt19937_64 &rng,
 
 // Returns a random unsorted sequence of integers 0 to N-1
 Tour rand_tour(std::mt19937_64 &rng, const int N) {
-    // Create a state with N (50) ordered cities (0 to N-1)
+    // Create a state with N (default 50) ordered cities (0 to N-1)
     Tour tour(N);
     std::ranges::iota(tour, 0);
 
