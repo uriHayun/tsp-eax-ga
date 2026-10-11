@@ -21,8 +21,13 @@ function M.build_url(cities)
         scale = 2,
         markers = build_markers(cities),
         maptype = "roadmap",
-        key = ""
+        key = os.getenv("GOOGLE_MAPS_STATIC_API_KEY") or ""
     }
+
+    if not map_params.key or map_params.key == "" then
+        error("GOOGLE_MAPS_STATIC_API_KEY environment variable wasn't found")
+    end
+
     local map_img_url = "https://maps.googleapis.com/maps/api/staticmap?"
 
     -- Insert map parameters into the URL
@@ -30,7 +35,7 @@ function M.build_url(cities)
         map_img_url = map_img_url .. string.format("%s=%s&", key, url.escape(tostring(value)))
     end
 
-    return (map_img_url:gsub("&$", ""))  -- Remove trailing "&" if present
+    return (map_img_url:gsub("&$", ""))  -- ":gsub" removes trailing "&" if present
 end
 
 function M.fetch(url)
