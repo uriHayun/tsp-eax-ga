@@ -13,8 +13,6 @@ void run_ipc_server(const std::size_t MAX_GEN_COUNT = 1000);
 
 namespace Tsp::Utils {
 
-std::string trim(const std::string &value);
-std::string read_env_value(const std::string &key);
 void launch_frontend(const unsigned short port_num = 56767);
 
 }  // Closing namespace Tsp::Utils
