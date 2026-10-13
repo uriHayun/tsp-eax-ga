@@ -1,38 +1,25 @@
 local ipc = require "ipc"
 local map = require "map"
+local mercator = require "pseudo_mercator"
 
-local FALLBACK_PORT_NUM = 56767
+local FALLBACK_PORT_NUM = 56767  -- Inside IANA private/dynamic range (49152–65535)
 
 function love.load(arg)
-    love.window.setMode(1280, 720, { resizable = true, vsync = true })
-
     ipc.connect(tonumber(arg[1]) or FALLBACK_PORT_NUM)
 
-    local cities = ipc.fetch_cities()
+    local cities_coords = ipc.fetch_cities()
     ipc.client:settimeout(0)
 
-    MAP_IMG = map.fetch(map.build_url(cities))
+    local view = map.get_view(cities_coords)
+    MAP_IMG = map.fetch(map.build_url(cities_coords, view))
 
-    local width, height = love.graphics.getDimensions()
+    SCALE, OFFSET_X, OFFSET_Y = map.get_map_placement(MAP_IMG)
 
-    -- Pre-render map image to a canvas to avoid scaling it every frame
-    MAP_CANVAS = love.graphics.newCanvas(width, height)
-
-    -- Point to the map canvas as the current canvas, start drawing map canvas
-    love.graphics.setCanvas(MAP_CANVAS)
-
-    -- Clear the canvas before drawing the map image to make sure it's blank
-    love.graphics.clear()
-
-    local scale_x, scale_y = width / MAP_IMG:getWidth(), height / MAP_IMG:getHeight()
-    love.graphics.draw(MAP_IMG, 0, 0, 0, scale_x, scale_y)
-
-    -- Point to the screen as the current canvas, finish drawing map canvas
-    love.graphics.setCanvas()
+    CITIES_ORDERED_PAIR = mercator.project_all(cities_coords)
 end
 
 function love.update()
-    CURR_TOUR = ipc.fetch_tour()
+    CURR_TOUR = ipc.fetch_tour() or CURR_TOUR
 end
 
 function love.draw()
@@ -40,28 +27,19 @@ function love.draw()
     love.graphics.setColor(1, 1, 1)
 
     -- Draw pre-rendered map image scaled to fill up the entire window (background)
-    love.graphics.draw(MAP_CANVAS, 0, 0)
+    love.graphics.draw(MAP_IMG, OFFSET_X, OFFSET_Y, 0, SCALE, SCALE)
 
     -- Draw tour on map each generation
     if CURR_TOUR then
+        for i = 1, #CURR_TOUR do
+            local city_coords1 = CITIES_ORDERED_PAIR[CURR_TOUR[i]]
+            local city_coords2 = CITIES_ORDERED_PAIR[CURR_TOUR[i % #CURR_TOUR + 1]]
+        end
     end
 end
 
-function love.resize(width, height)
-    MAP_CANVAS = love.graphics.newCanvas(width, height)
-
-    -- Point to the map canvas as the current canvas, start drawing map canvas
-    love.graphics.setCanvas(MAP_CANVAS)
-
-    -- Clear the canvas before drawing the map image to make sure it's blank
-    love.graphics.clear()
-
-    -- Scale the map image to fill up the entire NEW-SIZED window
-    local scale_x, scale_y = width / MAP_IMG:getWidth(), height / MAP_IMG:getHeight()
-    love.graphics.draw(MAP_IMG, 0, 0, 0, scale_x, scale_y)
-
-    -- Point to the screen as the current canvas, finish drawing map canvas
-    love.graphics.setCanvas()
+function love.resize()
+    SCALE, OFFSET_X, OFFSET_Y = map.get_map_placement(MAP_IMG)
 end
 
 function love.quit()

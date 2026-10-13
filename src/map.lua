@@ -1,8 +1,17 @@
+local mercator = require "pseudo_mercator"
+
 local ltn12 = require "ltn12"
 local https = require "ssl.https"
 local url = require "socket.url"
 
 local M =  {}
+
+local MAP_H, MAP_W = 640, 640
+local MAP_SCALE = 2
+
+local MAP_SIZE_ZOOM0 = 256  -- Points-wide for zoom 0
+local MAX_ZOOM = 18         -- The max zoom Google Maps Static API allows
+local PADDING = 1.1         -- Extra 10% room - so no city could lie on map edge
 
 local function build_markers(cities)
     -- Small, red markers (pins) for each city of the TSP
@@ -15,18 +24,71 @@ local function build_markers(cities)
     return markers
 end
 
-function M.build_url(cities)
-    local map_params = {
-        size = string.format("%dx%d", love.graphics.getWidth(), love.graphics.getHeight()),
-        scale = 2,
-        markers = build_markers(cities),
-        maptype = "roadmap",
-        key = os.getenv("GOOGLE_MAPS_STATIC_API_KEY") or ""
+local get_bounding_map_frame = function(cities_ordered_pair)
+    local bounds = {
+        min_x = math.huge,  max_x = -math.huge,
+        min_y = math.huge,  max_y = -math.huge,
     }
 
-    if not map_params.key or map_params.key == "" then
+    for _, city in ipairs(cities_ordered_pair) do
+        bounds.min_x = math.min(bounds.min_x, city.x)
+        bounds.max_x = math.max(bounds.max_x, city.x)
+        bounds.min_y = math.min(bounds.min_y, city.y)
+        bounds.max_y = math.max(bounds.max_y, city.y)
+    end
+
+    -- Representing map frame's 4 corners
+    return bounds
+end
+
+local function get_map_center(bounds)
+    local midd_x, midd_y = (bounds.min_x + bounds.max_x) / 2, (bounds.min_y + bounds.max_y) / 2
+
+    return mercator.unproject(midd_x, midd_y)
+end
+
+local function get_map_zoom(bounds)
+    local frame_w, frame_h = (bounds.max_x - bounds.min_x) * PADDING, (bounds.max_y - bounds.min_y) * PADDING
+
+    -- Begin most zoomed in, zoom out until all cities are in padded frame
+    for zoom = MAX_ZOOM, 0, -1 do
+        local map_size = MAP_SIZE_ZOOM0 * 2^zoom
+
+        if frame_w * map_size <= MAP_W and frame_h * map_size <= MAP_H then
+            return zoom
+        end
+    end
+
+    return 0
+end
+
+function M.get_view(cities_coords)
+    local bounds = get_bounding_map_frame(mercator.project_all(cities_coords))
+
+    local center_lng, center_lat = get_map_center(bounds)
+
+    return {
+        center_lng = center_lng, center_lat = center_lat,
+        zoom = get_map_zoom(bounds)
+    }
+end
+
+function M.build_url(cities, view)
+    local key = os.getenv("GOOGLE_MAPS_STATIC_API_KEY") or ""
+
+    if not key or key == "" then
         error("GOOGLE_MAPS_STATIC_API_KEY environment variable wasn't found")
     end
+
+    local map_params = {
+        center = string.format("%.5f,%.5f", view.center_lat, view.center_lng),
+        zoom = view.zoom,
+        size = string.format("%dx%d", MAP_W, MAP_H),
+        scale = MAP_SCALE,
+        markers = build_markers(cities),
+        maptype = "roadmap",
+        key = key
+    }
 
     local map_img_url = "https://maps.googleapis.com/maps/api/staticmap?"
 
@@ -38,24 +100,35 @@ function M.build_url(cities)
     return (map_img_url:gsub("&$", ""))  -- ":gsub" removes trailing "&" if present
 end
 
-function M.fetch(url)
+function M.fetch(url_map)
     local map_filename = "images/map.png"
 
     local map_file = assert(io.open(map_filename, "wb"))
 
-    local body, status_code, _, status_msg = https.request({
-        url = url,
+    local body, status_code = https.request({
+        url = url_map,
         sink = ltn12.sink.file(map_file)
     })
 
-    map_file:close()
-
     if not body or (status_code ~= 200 and status_code ~= 201) then
         os.remove(map_filename)
-        error("Failed to download map image: " .. tostring(status_msg or status_code))
+        error("Failed to download map image")
     end
 
     return love.graphics.newImage(map_filename)
+end
+
+function M.get_map_placement(map_img)
+    local win_w, win_h = love.graphics.getDimensions()
+    local img_w, img_h = map_img:getWidth(), map_img:getHeight()
+
+    -- Same scale for both axes - prevent image distorting:
+    -- largest factor which fits the whole image
+    local scale = math.min(win_w / img_w, win_h / img_h)
+
+    local offset_x, offset_y = (win_w - img_w*scale) / 2, (win_h - img_h*scale) / 2
+
+    return scale, offset_x, offset_y
 end
 
 return M
