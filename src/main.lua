@@ -2,7 +2,7 @@ local ipc = require "ipc"
 local map = require "map"
 local mercator = require "pseudo_mercator"
 
-local FALLBACK_PORT_NUM = 56767  -- Inside IANA private/dynamic range (49152–65535)
+local FALLBACK_PORT_NUM = 56767  -- Inside of IANA private/dynamic range (49152–65535)
 
 function love.load(arg)
     ipc.connect(tonumber(arg[1]) or FALLBACK_PORT_NUM)
@@ -31,13 +31,25 @@ function love.draw()
 
     -- Draw tour on map each generation
     if CURR_TOUR then
-        for i = 1, #CURR_TOUR do
-            local city = CITIES_ORDERED_PAIR[CURR_TOUR[i]]
-            local next_city = CITIES_ORDERED_PAIR[CURR_TOUR[i % #CURR_TOUR + 1]]
 
+        local N = #CURR_TOUR
+        local DARKEST = 0.25
+        local BRIGHTEST = 1.0
+        local red = BRIGHTEST
+        local STEP = (BRIGHTEST - DARKEST) / math.max((N - 1), 1)
+
+        for i = 1, N do
+            local city = CITIES_ORDERED_PAIR[CURR_TOUR[i]]
+            local next_city = CITIES_ORDERED_PAIR[CURR_TOUR[i % N + 1]]
+
+            love.graphics.setColor(red, 0, 0)
             love.graphics.line(city.x,city.y, next_city.x, next_city.y)
+
+            red = math.max(DARKEST, red - STEP)
         end
     end
+
+    love.graphics.setColor(1, 1, 1)
 end
 
 function love.resize()
