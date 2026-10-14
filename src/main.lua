@@ -32,8 +32,10 @@ function love.draw()
     -- Draw tour on map each generation
     if CURR_TOUR then
         for i = 1, #CURR_TOUR do
-            local city_coords1 = CITIES_ORDERED_PAIR[CURR_TOUR[i]]
-            local city_coords2 = CITIES_ORDERED_PAIR[CURR_TOUR[i % #CURR_TOUR + 1]]
+            local city = CITIES_ORDERED_PAIR[CURR_TOUR[i]]
+            local next_city = CITIES_ORDERED_PAIR[CURR_TOUR[i % #CURR_TOUR + 1]]
+
+            love.graphics.line(city.x,city.y, next_city.x, next_city.y)
         end
     end
 end
