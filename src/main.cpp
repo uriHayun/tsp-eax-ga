@@ -15,7 +15,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <curl/curl.h>
-#include <dotenv.h>
+#include <dotenv/dotenv.hpp>
 #include <filesystem>
 #include <format>
 #include <iostream>
@@ -48,7 +48,7 @@ using Json = nlohmann::json;
 
 int main() {
     // Load environment variables from a local .env file into process environment
-    dotenv::init();
+    dotenv::load(".env");
 }
 
 // Transfers the cities array once, and a tour each generation to Lua LÖVE2D in order to draw later
@@ -274,7 +274,7 @@ Cities load_cities(const std::size_t &NUM_CITIES) {
 
     std::string response;
 
-    const std::string GEONAMES_USERNAME = std::getenv("GEONAMES_USERNAME");
+    const std::string GEONAMES_USERNAME = dotenv::get<std::string>("GEONAMES_USERNAME").value_or("");
     if (GEONAMES_USERNAME.empty()) {
         curl_easy_cleanup(curl);
 
