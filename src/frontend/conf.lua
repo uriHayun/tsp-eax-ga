@@ -2,7 +2,7 @@ function love.conf(t)
     t.identity = "tsp-eax-ga"
 
     t.window.title = "TSP Visualizer... CS50x Final Project: TSP-EAX-GA"
-    t.window.icon = "images/window_icon.gif"
+    t.window.icon = "images/window_icon.png"
 
     t.version = "11.5"
     t.window.width = 1280

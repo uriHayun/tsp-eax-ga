@@ -9,7 +9,7 @@
 #include <tuple>
 #include <vector>
 
-void run_ipc_server(const std::size_t MAX_GEN_COUNT = 1000);
+void run_ipc_server(const std::size_t MAX_GEN_COUNT = 350);
 
 namespace Tsp::Utils {
 
@@ -22,7 +22,7 @@ namespace Tsp {
 // Returns the total distance of a tour represented by a state
 double tour_len(const Tour &tour, const Cities &cities);
 
-Cities load_cities(const size_t &NUM_CITIES = 500);
+Cities load_cities(const size_t &NUM_CITIES = 350);
 
 std::size_t receive_data(void *contents, std::size_t size, std::size_t count, void *output_buffer);
 

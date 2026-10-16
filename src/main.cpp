@@ -49,11 +49,24 @@ using Json = nlohmann::json;
 int main() {
     // Load environment variables from a local .env file into process environment
     dotenv::load(".env");
+
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+
+    try { run_ipc_server(); }
+    catch (const std::exception &e) {
+        std::println(std::cerr, "Error: {}", e.what());
+        curl_global_cleanup();
+        return 1;
+    }
+
+    curl_global_cleanup();
+
+    return 0;
 }
 
 // Transfers the cities array once, and a tour each generation to Lua LÖVE2D in order to draw later
 // using a standalone Asio TCP socket as an IPC local server connection
-void run_ipc_server(const std::size_t MAX_GEN_COUNT = 1000) {
+void run_ipc_server(const std::size_t MAX_GEN_COUNT) {
     using namespace Tsp;
     using namespace Tsp::Ga;
     using tcp = asio::ip::tcp;
@@ -67,10 +80,7 @@ void run_ipc_server(const std::size_t MAX_GEN_COUNT = 1000) {
     std::optional<Cities> cities;
 
     try {
-        acceptor.emplace(io, tcp::endpoint(tcp::v6(), 0));
-
-        // Allow IPv4 connections as well as IPv6
-        acceptor->set_option(asio::ip::v6_only(false));
+        acceptor.emplace(io, tcp::endpoint(asio::ip::address_v4::loopback(), 0));
 
         // Actual dynamic, private port number from the OS
         const unsigned short port_num = acceptor->local_endpoint().port();
@@ -168,7 +178,7 @@ void launch_frontend(const unsigned short PORT_NUM) {
 
     path love2d_path;
     path bin_dir = path(whereami::executable_path()).parent_path();  // Program folder
-    path lua_dir = bin_dir / "lua";  // Lua folder
+    path lua_dir = bin_dir / "src/frontend";  // Lua folder
 
     auto love2d_path_exists = [&]() {
         if (!std::filesystem::exists(love2d_path)) {

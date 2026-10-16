@@ -40,11 +40,41 @@ FetchContent_Declare(dotenv
 FetchContent_Declare(json
     URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz)
 
-FetchContent_MakeAvailable(asio boost curl dotenv json)
+set(LOVE_VERSION 11.5)
+set(LOVE_URL https://github.com/love2d/love/releases/download/${LOVE_VERSION})
+
+if (WIN32)
+    FetchContent_Declare(love URL ${LOVE_URL}/love-${LOVE_VERSION}-win64.zip)
+elseif (APPLE)
+    FetchContent_Declare(love URL ${LOVE_URL}/love-${LOVE_VERSION}-macos.zip)
+else ()
+    FetchContent_Declare(love
+        URL ${LOVE_URL}/love-${LOVE_VERSION}-x86_64.AppImage
+        DOWNLOAD_NO_EXTRACT TRUE)
+endif ()
+
+FetchContent_MakeAvailable(asio boost curl dotenv json love)
 
 add_executable(tsp_solver
     src/main.cpp src/crossover.cpp
     external/whereami/whereami.c external/whereami/whereami++.cpp)
+
+# Copies LÖVE next to the executable so the C++ backend can launch it
+if (WIN32)
+    add_custom_target(copy_love ALL
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                ${love_SOURCE_DIR} $<TARGET_FILE_DIR:tsp_solver>)
+elseif (NOT APPLE)
+    add_custom_target(copy_love ALL
+        COMMAND ${CMAKE_COMMAND} -E copy
+                ${love_SOURCE_DIR}/love-${LOVE_VERSION}-x86_64.AppImage
+                $<TARGET_FILE_DIR:tsp_solver>/love
+        COMMAND chmod +x $<TARGET_FILE_DIR:tsp_solver>/love)
+endif ()
+
+if (TARGET copy_love)
+    add_dependencies(tsp_solver copy_love)
+endif ()
 
 target_include_directories(tsp_solver PRIVATE
     include
@@ -65,3 +95,17 @@ if (WIN32)
     # mswsock: Microsoft's Winsock extensions - used by Asio
     target_link_libraries(tsp_solver PRIVATE ws2_32 mswsock)
 endif ()
+
+if (WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_link_libraries(tsp_solver PRIVATE stdc++exp)
+endif ()
+
+# Copies Lua frontend files next to the executable so the C++ backend can launch it
+add_custom_target(copy_frontend ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/src/frontend
+            $<TARGET_FILE_DIR:tsp_solver>/src/frontend
+    COMMAND ${CMAKE_COMMAND} -E copy
+            ${CMAKE_SOURCE_DIR}/external/json-lua/json.lua
+            $<TARGET_FILE_DIR:tsp_solver>/src/frontend/json.lua)
+add_dependencies(tsp_solver copy_frontend)
