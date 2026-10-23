@@ -140,7 +140,7 @@ end
 
 local http_ok = 200
 
-local png_sig = love.filesystem.read("images/window_icon.png", 8) or "\137PNG\r\n\26\n"
+local png_sig = love.filesystem.read("images/window-icon/window_icon.png", 8) or "\137PNG\r\n\26\n"
 
 -- Returns whether an image is of type PNG by checking if its 1st 8 bytes are the PNG image's signature
 local is_png = function(img) return img:sub(1, 8) == png_sig end
