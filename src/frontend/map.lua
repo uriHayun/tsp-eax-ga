@@ -3,6 +3,7 @@ local function log(s) love.filesystem.append("debug.log", os.date("%X ") .. s ..
 local mercator = require "pseudo_mercator"
 
 local https = require "https"
+local sha1 = require "sha1"
 local url = require "socket.url"
 
 local M =  {}
@@ -74,11 +75,35 @@ function M.get_view(cities_coords)
     }
 end
 
-function M.build_url(cities, view)
-    local key = os.getenv("GOOGLE_MAPS_STATIC_API_KEY_PRIMARY") or os.getenv("GOOGLE_MAPS_STATIC_API_KEY_ALTERNATIVE") or ""
+-- Sign a request URL with a Google URL signing secret
+local function sign_url(input_url, secret)
+    assert(input_url and secret, 'Both "input_url", and "secret" are required')
 
-    if not key or key == "" then
-        error("GOOGLE_MAPS_STATIC_API_KEY environment variable wasn't found")
+    -- path + query only (strip scheme and host)
+    local url_to_sign = input_url:match("^https?://[^/]+(/.*)$")
+    assert(url_to_sign, "Couldn't parse the URL")
+
+    -- urlsafe base64 -> standard base64 -> raw key bytes
+    local std = secret:gsub("%-", "+"):gsub("_", "/")
+    local key = love.data.decode("string", "base64", std)
+
+    -- raw binary HMAC-SHA1
+    local sig = sha1.hmac_binary(key, url_to_sign)
+
+    -- raw bytes -> standard base64 -> urlsafe base64
+    local b64 = love.data.encode("string", "base64", sig)
+    local encoded = b64:gsub("%+", "-"):gsub("/", "_")
+
+    return input_url .. "&signature=" .. encoded
+end
+
+local max_url_len = 16384
+
+function M.build_url(cities, view)
+    local api_key = os.getenv("GOOGLE_MAPS_STATIC_API_KEY_PRIMARY") or os.getenv("GOOGLE_MAPS_STATIC_API_KEY_ALTERNATIVE") or ""
+
+    if api_key == "" then  -- Using api_key = ... or "" - so key cannot be nil
+        error("GOOGLE_MAPS_STATIC_API_KEY_PRIMARY/GOOGLE_MAPS_STATIC_API_KEY_ALTERNATIVE environment variables weren't found")
     end
 
     local map_params = {
@@ -88,7 +113,7 @@ function M.build_url(cities, view)
         scale = MAP_SCALE,
         markers = build_markers(cities),
         maptype = "roadmap",
-        key = key
+        key = api_key
     }
 
     local map_img_url = "https://maps.googleapis.com/maps/api/staticmap?"
@@ -98,14 +123,26 @@ function M.build_url(cities, view)
         map_img_url = map_img_url .. string.format("%s=%s&", key, url.escape(tostring(value)))
     end
 
-    return (map_img_url:gsub("&$", ""))  -- ":gsub" removes trailing "&" if present
+    local signing_secret = os.getenv("GOOGLE_MAPS_STATIC_API_SIGNING_SECRET")
+    if not signing_secret or signing_secret == "" then
+        error("GOOGLE_MAPS_STATIC_API_SIGNING_SECRET environment variable wasn't found")
+    end
+
+    local signed_url = sign_url(map_img_url:gsub("&$", ""),  -- ":gsub" removes trailing "&" if present
+        signing_secret)
+
+    if #signed_url > max_url_len then
+        return nil, string.format("URL too long (> %d): too many cities for one map URL", max_url_len)
+    end
+
+    return signed_url
 end
 
 local http_ok = 200
 
-local png_sig = love.filesystem.read("images/window_icon.png", 8)
+local png_sig = love.filesystem.read("images/window_icon.png", 8) or "\137PNG\r\n\26\n"
 
--- Returns whether an image is of type PNG by checking if its 1st 8 bits are the PNG image's signature
+-- Returns whether an image is of type PNG by checking if its 1st 8 bytes are the PNG image's signature
 local is_png = function(img) return img:sub(1, 8) == png_sig end
 
 function M.fetch(url_map)
@@ -113,12 +150,15 @@ function M.fetch(url_map)
 
     local valid, status_code, body = pcall(https.request, url_map)
     if not valid then
-        return nil, "Request error"
+        return nil, "Request error: " .. tostring(status_code)
     end
 
     log("Map request done: status=" .. tostring(status_code) .. " bytes=" .. tostring(body and #body))
 
     if status_code ~= http_ok then
+        if is_png(tostring(body)) then
+            love.filesystem.write("error.png", body)
+        end
         local snippet = tostring(body):sub(1, 200):gsub("[^%g ]", "?")
         return nil, "HTTP code: " .. tostring(status_code) .. " " .. snippet
     end

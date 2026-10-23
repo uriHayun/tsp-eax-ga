@@ -334,7 +334,7 @@ Cities load_cities(const std::size_t &NUM_CITIES) {
         Json data = Json::parse(response);
         if (!data.contains("geonames") || !data["geonames"].is_array()) {
             throw std::runtime_error(R"(Invalid response format:
-                "geonames" key not found or is not an array\n)");
+                "GeoNames" key not found or is not an array\n)");
         }
 
         for (const auto &city : data["geonames"]) {

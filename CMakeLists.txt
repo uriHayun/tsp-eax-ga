@@ -107,7 +107,10 @@ add_custom_target(copy_frontend ALL
         $<TARGET_FILE_DIR:tsp_solver>/src/frontend
     COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_SOURCE_DIR}/external/json-lua/json.lua
-        $<TARGET_FILE_DIR:tsp_solver>/src/frontend/json.lua)
+        $<TARGET_FILE_DIR:tsp_solver>/src/frontend/json.lua
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/external/sha1
+        $<TARGET_FILE_DIR:tsp_solver>/src/frontend/sha1)
 add_dependencies(tsp_solver copy_frontend)
 
 if (WIN32)
