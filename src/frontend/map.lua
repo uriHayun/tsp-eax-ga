@@ -1,7 +1,8 @@
+local function log(s) love.filesystem.append("debug.log", os.date("%X ") .. s .. "\n") end
+
 local mercator = require "pseudo_mercator"
 
-local ltn12 = require "ltn12"
-local https = require "ssl.https"
+local https = require "https"
 local url = require "socket.url"
 
 local M =  {}
@@ -74,7 +75,7 @@ function M.get_view(cities_coords)
 end
 
 function M.build_url(cities, view)
-    local key = os.getenv("GOOGLE_MAPS_STATIC_API_KEY") or ""
+    local key = os.getenv("GOOGLE_MAPS_STATIC_API_KEY_PRIMARY") or os.getenv("GOOGLE_MAPS_STATIC_API_KEY_ALTERNATIVE") or ""
 
     if not key or key == "" then
         error("GOOGLE_MAPS_STATIC_API_KEY environment variable wasn't found")
@@ -100,22 +101,34 @@ function M.build_url(cities, view)
     return (map_img_url:gsub("&$", ""))  -- ":gsub" removes trailing "&" if present
 end
 
+local http_ok = 200
+
+local png_sig = love.filesystem.read("images/window_icon.png", 8)
+
+-- Returns whether an image is of type PNG by checking if its 1st 8 bits are the PNG image's signature
+local is_png = function(img) return img:sub(1, 8) == png_sig end
+
 function M.fetch(url_map)
-    local map_filename = "images/map.png"
+    log("Map requesting begins")
 
-    local map_file = assert(io.open(map_filename, "wb"))
-
-    local body, status_code = https.request({
-        url = url_map,
-        sink = ltn12.sink.file(map_file)
-    })
-
-    if not body or (status_code ~= 200 and status_code ~= 201) then
-        os.remove(map_filename)
-        error("Failed to download map image")
+    local valid, status_code, body = pcall(https.request, url_map)
+    if not valid then
+        return nil, "Request error"
     end
 
-    return love.graphics.newImage(map_filename)
+    log("Map request done: status=" .. tostring(status_code) .. " bytes=" .. tostring(body and #body))
+
+    if status_code ~= http_ok then
+        local snippet = tostring(body):sub(1, 200):gsub("[^%g ]", "?")
+        return nil, "HTTP code: " .. tostring(status_code) .. " " .. snippet
+    end
+
+    if type(body) ~= "string" or not is_png(body) then
+        return nil, "Response isn't PNG"
+    end
+
+    -- Since Google's terms mostly don't allow caching their maps, request a new map each run
+    return love.graphics.newImage(love.filesystem.newFileData(body, "map.png"))
 end
 
 function M.get_map_placement(map_img)

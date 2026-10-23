@@ -27,6 +27,8 @@ function M.fetch_cities()
         error("Failed to receive cities: " .. tostring(err))
     end
 
+    love.filesystem.append("debug.log", "raw cities line: " .. buffer:sub(1, 300) .. "\n")
+
     local valid, decoded = pcall(json.decode, buffer)
     if not valid then
         error("Failed to parse JSON cities array: " .. tostring(decoded))
@@ -58,6 +60,10 @@ function M.close()
         client:close()
         client = nil
     end
+end
+
+function M.set_nonblocking()
+    return client:settimeout(0)
 end
 
 return M

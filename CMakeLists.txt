@@ -103,9 +103,54 @@ endif ()
 # Copies Lua frontend files next to the executable so the C++ backend can launch it
 add_custom_target(copy_frontend ALL
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/src/frontend
-            $<TARGET_FILE_DIR:tsp_solver>/src/frontend
+        ${CMAKE_SOURCE_DIR}/src/frontend
+        $<TARGET_FILE_DIR:tsp_solver>/src/frontend
     COMMAND ${CMAKE_COMMAND} -E copy
-            ${CMAKE_SOURCE_DIR}/external/json-lua/json.lua
-            $<TARGET_FILE_DIR:tsp_solver>/src/frontend/json.lua)
+        ${CMAKE_SOURCE_DIR}/external/json-lua/json.lua
+        $<TARGET_FILE_DIR:tsp_solver>/src/frontend/json.lua)
 add_dependencies(tsp_solver copy_frontend)
+
+if (WIN32)
+    include(ExternalProject)
+    find_program(MAKE_PROGRAM NAMES mingw32-make make REQUIRED)
+
+    set(LUAJIT_SRC ${CMAKE_BINARY_DIR}/_luajit/src)
+    set(HTTPS_INSTALL ${CMAKE_BINARY_DIR}/_lua_https/install)
+
+    ExternalProject_Add(luajit
+        GIT_REPOSITORY https://github.com/LuaJIT/LuaJIT.git
+        GIT_TAG        2a8e017ef1ece6a95b983ffca073d30609dce7c4
+        GIT_SHALLOW    TRUE
+        SOURCE_DIR     ${CMAKE_BINARY_DIR}/_luajit
+        BUILD_IN_SOURCE TRUE
+        CONFIGURE_COMMAND ""
+        BUILD_COMMAND  ${MAKE_PROGRAM}
+        INSTALL_COMMAND ""
+        BUILD_BYPRODUCTS ${LUAJIT_SRC}/lua51.dll)
+
+    ExternalProject_Add(lua_https
+        GIT_REPOSITORY https://github.com/love2d/lua-https.git
+        GIT_TAG        e1b77046dd3cf1a9f61ddeb63cb39d47c844c089
+        GIT_SHALLOW    TRUE
+        UPDATE_DISCONNECTED TRUE
+        SOURCE_DIR     ${CMAKE_BINARY_DIR}/_lua_https/src
+        BINARY_DIR     ${CMAKE_BINARY_DIR}/_lua_https/build
+        DEPENDS        luajit
+        CMAKE_GENERATOR ${CMAKE_GENERATOR}
+        CMAKE_ARGS
+            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+            -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+            -DCMAKE_INSTALL_PREFIX=${HTTPS_INSTALL}
+            -DLUAJIT_INCLUDE_DIR=${LUAJIT_SRC}
+            -DLUAJIT_LIBRARY=${LUAJIT_SRC}/lua51.dll
+            "-DCMAKE_CXX_FLAGS=-DNO_OLDNAMES -Dpid_t=_pid_t"
+            "-DCMAKE_SHARED_LINKER_FLAGS=-static-libgcc -static-libstdc++"
+
+        BUILD_BYPRODUCTS ${HTTPS_INSTALL}/https.dll)
+    add_custom_target(copy_https ALL
+        COMMAND ${CMAKE_COMMAND} -E copy
+                ${HTTPS_INSTALL}/https.dll $<TARGET_FILE_DIR:tsp_solver>)
+    add_dependencies(copy_https lua_https)
+    add_dependencies(tsp_solver copy_https)
+endif ()

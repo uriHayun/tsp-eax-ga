@@ -113,7 +113,7 @@ void run_ipc_server(const std::size_t MAX_GEN_COUNT) {
 
         if (!connected) {
             acceptor->cancel();
-            throw std::runtime_error(std::format("LÖVE2D didn't connect in time ({})", LOVE2D_CONN_TIMEOUT.count()));
+            throw std::runtime_error(std::format("LÖVE2D didn't connect in time ({}s)", LOVE2D_CONN_TIMEOUT.count()));
         }
 
         if (accept_ec) {
@@ -343,11 +343,6 @@ Cities load_cities(const std::size_t &NUM_CITIES) {
                 std::stod(city["lng"].get<std::string>())
             });
         }
-
-        // Print longitude and latitude - just for verification for now
-        for (const City &city : cities) {
-            std::println("City: latitude={}, longitude={}", city.lat, city.lng);
-        }
     }
     catch (const Json::parse_error &e) {
         throw std::runtime_error(std::format("Failed to parse JSON response: {}\n", e.what()));
@@ -371,21 +366,17 @@ std::size_t receive_data(void *contents, std::size_t size, std::size_t count, vo
 
 //
 std::string cities_to_json(const Cities &cities) {
-    Json json;
+    Json json = Json::array();
 
     for (const City &city : cities) {
-        json["cities"].push_back({ city.lat, city.lng });
+        json.push_back({ { "lat", city.lat }, { "lng", city.lng } });
     }
 
     return json.dump() + '\n';
 }
 
 std::string tour_to_json(const Tour &tour) {
-    Json json;
-
-    json["tour"] = tour;
-
-    return json.dump() + '\n';
+    return Json(tour).dump() + '\n';
 }
 
 }  // Closing namespace Tsp
