@@ -1,3 +1,4 @@
+// Prevent Windows.h from defining min/max macros that conflict with std::min/std::max
 #define NOMINMAX
 
 #include "city.hpp"
@@ -62,6 +63,23 @@ int main() {
     curl_global_cleanup();
 
     return 0;
+}
+
+namespace Tsp::Ipc {
+
+//
+std::string cities_to_json(const Cities &cities) {
+    Json json = Json::array();
+
+    for (const City &city : cities) {
+        json.push_back({ { "lat", city.lat }, { "lng", city.lng } });
+    }
+
+    return json.dump() + '\n';
+}
+
+std::string tour_to_json(const Tour &tour) {
+    return Json(tour).dump() + '\n';
 }
 
 // Transfers the cities array once, and a tour each generation to Lua LÖVE2D in order to draw later
@@ -164,12 +182,9 @@ void run_ipc_server(const std::size_t MAX_GEN_COUNT) {
     }
 }
 
-namespace Tsp::Utils {
+}  // Closing namespace Tsp::Ipc
 
-// Removes leading and trailing whitespace from a string
-std::string trim(const std::string &value) {
-    return boost::trim_copy_if(value, boost::is_any_of(" \t\r\n"));
-}
+namespace Tsp::Frontend {
 
 // Launches LÖVE2D window with a port connection number argument
 // (supports all widely-used OSs: Windows, macOS, Linux based OSs (e.g., ChromeOS))
@@ -256,6 +271,109 @@ void launch_frontend(const unsigned short PORT_NUM) {
     #endif
 }
 
+}  // Closing namespace Tsp::Frontend
+
+namespace Tsp::Data {
+
+//
+Cities load_cities(const std::size_t &NUM_CITIES) {
+CURL *curl = curl_easy_init();
+if (!curl) {
+    // HTTP request failed
+    throw std::runtime_error("Failed to initialize CURL\n");
+}
+
+std::string response;
+
+const std::string GEONAMES_USERNAME = dotenv::get<std::string>("GEONAMES_USERNAME").value_or("");
+if (GEONAMES_USERNAME.empty()) {
+    curl_easy_cleanup(curl);
+
+    throw std::runtime_error("GEONAMES_USERNAME environment variable is not set\n");
+}
+
+const std::string URL = std::format("https://secure.geonames.org/searchJSON"
+    "?country=US&featureClass=P&maxRows={}&username={}", NUM_CITIES, GEONAMES_USERNAME);
+
+curl_easy_setopt(curl, CURLOPT_URL, URL.c_str());
+curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, receive_data);
+curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+// Follow HTTP redirects (301, 302) automatically
+curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+
+// Prevent the request from hanging indefinitely by limiting the connection and total timeouts
+curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+
+CURLcode result = curl_easy_perform(curl);
+if (result != CURLE_OK) {
+    curl_easy_cleanup(curl);
+
+    throw std::runtime_error("Failed to perform CURL request\n");
+}
+
+long http_status = 0;
+curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
+if (http_status != 200) {
+    curl_easy_cleanup(curl);
+
+    throw std::runtime_error(std::format("HTTP request failed with status code: {}\n", http_status));
+}
+
+if (response.empty()) {
+    curl_easy_cleanup(curl);
+
+    throw std::runtime_error("Received empty response\n");
+}
+
+curl_easy_cleanup(curl);
+
+Cities cities;
+
+try {
+    Json data = Json::parse(response);
+    if (!data.contains("geonames") || !data["geonames"].is_array()) {
+        throw std::runtime_error(R"(Invalid response format:
+            "GeoNames" key not found or is not an array\n)");
+    }
+
+    for (const auto &city : data["geonames"]) {
+        cities.push_back({
+            std::stod(city["lat"].get<std::string>()),
+            std::stod(city["lng"].get<std::string>())
+        });
+    }
+}
+catch (const Json::parse_error &e) {
+    throw std::runtime_error(std::format("Failed to parse JSON response: {}\n", e.what()));
+}
+catch (Json::exception &e) {
+    throw std::runtime_error(std::format("JSON exception occurred: {}\n", e.what()));
+}
+
+return cities;
+}
+
+// libcurl callback to append HTTP received response buffers data to a string
+// Note: libcurl is a C library, so this callback uses raw pointers instead of C++ references
+std::size_t receive_data(void *contents, std::size_t size, std::size_t count, void *output_buffer) {
+    std::size_t total_size = size * count;
+    std::string *res = static_cast<std::string *>(output_buffer);
+    res->append(static_cast<char *>(contents), total_size);
+
+    return total_size;
+}
+
+}  // Closing namespace Tsp::Data
+
+namespace Tsp::Utils {
+
+// Removes leading and trailing whitespace from a string
+std::string trim(const std::string &value) {
+    return boost::trim_copy_if(value, boost::is_any_of(" \t\r\n"));
+}
+
 }  // Closing namespace Tsp::Utils
 
 namespace Tsp {
@@ -273,112 +391,6 @@ double tour_len(const Tour &tour, const Cities &cities) {
 
     return total_dist;
 }
-
-//
-Cities load_cities(const std::size_t &NUM_CITIES) {
-    CURL *curl = curl_easy_init();
-    if (!curl) {
-        // HTTP request failed
-        throw std::runtime_error("Failed to initialize CURL\n");
-    }
-
-    std::string response;
-
-    const std::string GEONAMES_USERNAME = dotenv::get<std::string>("GEONAMES_USERNAME").value_or("");
-    if (GEONAMES_USERNAME.empty()) {
-        curl_easy_cleanup(curl);
-
-        throw std::runtime_error("GEONAMES_USERNAME environment variable is not set\n");
-    }
-
-    const std::string URL = std::format("https://secure.geonames.org/searchJSON"
-        "?country=US&featureClass=P&maxRows={}&username={}", NUM_CITIES, GEONAMES_USERNAME);
-
-    curl_easy_setopt(curl, CURLOPT_URL, URL.c_str());
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, receive_data);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-    
-    // Follow HTTP redirects (301, 302) automatically
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-
-    // Prevent the request from hanging indefinitely by limiting the connection and total timeouts
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
-
-    CURLcode result = curl_easy_perform(curl);
-    if (result != CURLE_OK) {
-        curl_easy_cleanup(curl);
-
-        throw std::runtime_error("Failed to perform CURL request\n");
-    }
-
-    long http_status = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
-    if (http_status != 200) {
-        curl_easy_cleanup(curl);
-
-        throw std::runtime_error(std::format("HTTP request failed with status code: {}\n", http_status));
-    }
-
-    if (response.empty()) {
-        curl_easy_cleanup(curl);
-
-        throw std::runtime_error("Received empty response\n");
-    }
-
-    curl_easy_cleanup(curl);
-
-    Cities cities;
-
-    try {
-        Json data = Json::parse(response);
-        if (!data.contains("geonames") || !data["geonames"].is_array()) {
-            throw std::runtime_error(R"(Invalid response format:
-                "GeoNames" key not found or is not an array\n)");
-        }
-
-        for (const auto &city : data["geonames"]) {
-            cities.push_back({
-                std::stod(city["lat"].get<std::string>()),
-                std::stod(city["lng"].get<std::string>())
-            });
-        }
-    }
-    catch (const Json::parse_error &e) {
-        throw std::runtime_error(std::format("Failed to parse JSON response: {}\n", e.what()));
-    }
-    catch (Json::exception &e) {
-        throw std::runtime_error(std::format("JSON exception occurred: {}\n", e.what()));
-    }
-
-    return cities;
-}
-
-// libcurl callback to append HTTP received response buffers data to a string
-// Note: libcurl is a C library, so this callback uses raw pointers instead of C++ references
-std::size_t receive_data(void *contents, std::size_t size, std::size_t count, void *output_buffer) {
-    std::size_t total_size = size * count;
-    std::string *res = static_cast<std::string *>(output_buffer);
-    res->append(static_cast<char *>(contents), total_size);
-
-    return total_size;
-}
-
-//
-std::string cities_to_json(const Cities &cities) {
-    Json json = Json::array();
-
-    for (const City &city : cities) {
-        json.push_back({ { "lat", city.lat }, { "lng", city.lng } });
-    }
-
-    return json.dump() + '\n';
-}
-
-std::string tour_to_json(const Tour &tour) {
-    return Json(tour).dump() + '\n';
-}
-
 }  // Closing namespace Tsp
 
 namespace Tsp::Ga {
