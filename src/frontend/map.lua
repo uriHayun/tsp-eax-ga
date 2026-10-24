@@ -67,7 +67,7 @@ end
 function M.get_view(cities_coords)
     local bounds = get_bounding_map_frame(mercator.project_all(cities_coords))
 
-    local center_lng, center_lat = get_map_center(bounds)
+    local center_lat, center_lng = get_map_center(bounds)
 
     return {
         center_lng = center_lng, center_lat = center_lat,
@@ -76,28 +76,29 @@ function M.get_view(cities_coords)
 end
 
 -- Sign a request URL with a Google URL signing secret
+-- Lua equivalent to: https://developers.google.com/maps/documentation/maps-static/digital-signature#python
 local function sign_url(input_url, secret)
     assert(input_url and secret, 'Both "input_url", and "secret" are required')
 
-    -- path + query only (strip scheme and host)
+    -- Match URL to adequate format using regex
     local url_to_sign = input_url:match("^https?://[^/]+(/.*)$")
     assert(url_to_sign, "Couldn't parse the URL")
 
-    -- urlsafe base64 -> standard base64 -> raw key bytes
+    -- Convert URL-safe base64 to standard base64
     local std = secret:gsub("%-", "+"):gsub("_", "/")
+
+    -- Decode Base64 secret into the raw binary key required by HMAC (cryptography)
     local key = love.data.decode("string", "base64", std)
 
-    -- raw binary HMAC-SHA1
     local sig = sha1.hmac_binary(key, url_to_sign)
 
-    -- raw bytes -> standard base64 -> urlsafe base64
     local b64 = love.data.encode("string", "base64", sig)
     local encoded = b64:gsub("%+", "-"):gsub("/", "_")
 
     return input_url .. "&signature=" .. encoded
 end
 
-local max_url_len = 16384
+local max_url_len = 16384  -- 16 KB
 
 function M.build_url(cities, view)
     local api_key = os.getenv("GOOGLE_MAPS_STATIC_API_KEY_PRIMARY") or os.getenv("GOOGLE_MAPS_STATIC_API_KEY_ALTERNATIVE") or ""
@@ -143,7 +144,7 @@ local http_ok = 200
 local png_sig = love.filesystem.read("images/window-icon/window_icon.png", 8) or "\137PNG\r\n\26\n"
 
 -- Returns whether an image is of type PNG by checking if its 1st 8 bytes are the PNG image's signature
-local is_png = function(img) return img:sub(1, 8) == png_sig end
+local is_png = function(img) return img:sub(1, 8) ==  png_sig end
 
 function M.fetch(url_map)
     log("Map requesting begins")

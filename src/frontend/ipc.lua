@@ -12,8 +12,8 @@ function M.connect(port_num)
 
     client = socket.tcp()
 
-    -- If not connected within 3 seconds, throw an error
-    client:settimeout(3)
+    -- If not connected within X seconds, throw an error
+    client:settimeout(20)
 
     local valid, err = client:connect(address, port_num)
     if not valid then
