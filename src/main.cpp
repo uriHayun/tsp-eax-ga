@@ -1,4 +1,4 @@
-// Prevent Windows.h from defining min/max macros that conflict with std::min/std::max
+// Prevent windows.h from defining min/max macros that conflict with std::min/std::max
 #define NOMINMAX
 
 #include "city.hpp"
@@ -67,7 +67,8 @@ int main() {
 
 namespace Tsp::Ipc {
 
-//
+// Shapes a collection of cities into a JSON array,
+// followed by a newline to mark the data transmtion's termination
 std::string cities_to_json(const Cities &cities) {
     Json json = Json::array();
 
@@ -78,6 +79,8 @@ std::string cities_to_json(const Cities &cities) {
     return json.dump() + '\n';
 }
 
+// Shapes a cities-tour into a JSON array,
+// followed by a newline to mark the data transmtion's termination
 std::string tour_to_json(const Tour &tour) {
     return Json(tour).dump() + '\n';
 }
@@ -275,7 +278,8 @@ void launch_frontend(const unsigned short PORT_NUM) {
 
 namespace Tsp::Data {
 
-//
+// Fetches NUM_CITIES populated, US places from GeoNames API,
+// and returnes their coordinates
 Cities load_cities(const std::size_t &NUM_CITIES) {
 CURL *curl = curl_easy_init();
 if (!curl) {
@@ -391,6 +395,7 @@ double tour_len(const Tour &tour, const Cities &cities) {
 
     return total_dist;
 }
+
 }  // Closing namespace Tsp
 
 namespace Tsp::Ga {
@@ -539,7 +544,12 @@ std::size_t tourney_select(const Tours &pop, const Cities &cities,
     return best_cand_idx;  // Best candidate from tournament
 }
 
-// TODO: comment here
+// Initializes the GA by doing thing which need to be done once:
+//     - Creating the true random number generator
+//     - Building the initial population
+//     - Computing the initial population's fitness scores
+// Returns (tuple): the population, corresponding fitness scores, random number generator
+
 std::tuple<Tours, std::vector<double>, std::mt19937_64> init_ga(const Cities &cities) {
     std::random_device rd;
     std::mt19937_64 rng(rd());
@@ -556,9 +566,9 @@ std::tuple<Tours, std::vector<double>, std::mt19937_64> init_ga(const Cities &ci
     return { std::move(pop), std::move(fitness_scores), std::move(rng) };
 }
 
-// the GA's main procedure:
-// TODO: explain GA's procedure: start -> initialization -> crossover -> (bc of EAX there's no mutation) 
-// -> fitness (evaluation) -> selection -> end-condition (temporary) -> end
+// Runs one generation of the GA (TSP-EAX-GA adapted - e.g., no mutation step):
+// parents selection, offspring evalution, offspring replacement.
+// Returns the offspring if is better than parent, parent otherwise
 Tour run_gen(Tours &pop, std::vector<double> &fitness_scores, std::mt19937_64 &rng, const Cities &cities) {
     using Eax::init_crossover;
     using Eax::crossover;
