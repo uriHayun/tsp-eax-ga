@@ -9,27 +9,36 @@
 #include <tuple>
 #include <vector>
 
+namespace Tsp::Ipc {
+
+std::string cities_to_json(const Cities &cities);
+std::string tour_to_json(const Tour &tour);
 void run_ipc_server(const std::size_t MAX_GEN_COUNT = 350);
+
+}  // Closing namespace Tsp::Ipc
+
+namespace Tsp::Frontend {
+
+void launch_frontend(const unsigned short port_num = 56767);
+
+}  // Closing namespace Tsp::Frontend
+
+namespace Tsp::Data {
+
+Cities load_cities(const size_t &NUM_CITIES = 350);
+std::size_t receive_data(void *contents, std::size_t size, std::size_t count, void *output_buffer);
+
+}  // Closing namespace Tsp::Data
 
 namespace Tsp::Utils {
 
 std::string trim(const std::string &value);
 
-void launch_frontend(const unsigned short port_num = 56767);
-
 }  // Closing namespace Tsp::Utils
 
 namespace Tsp {
 
-// Returns the total distance of a tour represented by a state
 double tour_len(const Tour &tour, const Cities &cities);
-
-Cities load_cities(const size_t &NUM_CITIES = 350);
-
-std::size_t receive_data(void *contents, std::size_t size, std::size_t count, void *output_buffer);
-
-std::string cities_to_json(const Cities &cities);
-std::string tour_to_json(const Tour &tour);
 
 }  // Closing namespace Tsp
 
