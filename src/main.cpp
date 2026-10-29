@@ -47,13 +47,15 @@
 
 using Json = nlohmann::json;
 
+using namespace Tsp;
+
 int main() {
     // Load environment variables from a local .env file into process environment
     dotenv::load(".env");
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
-    try { run_ipc_server(); }
+    try { Ipc::run_ipc_server(); }
     catch (const std::exception &e) {
         std::println(std::cerr, "Error: {}", e.what());
         curl_global_cleanup();
@@ -88,8 +90,6 @@ std::string tour_to_json(const Tour &tour) {
 // Transfers the cities array once, and a tour each generation to Lua LÖVE2D in order to draw later
 // using a standalone Asio TCP socket as an IPC local server connection
 void run_ipc_server(const std::size_t MAX_GEN_COUNT) {
-    using namespace Tsp;
-    using namespace Tsp::Ga;
     using tcp = asio::ip::tcp;
 
     asio::io_context io;
@@ -108,7 +108,7 @@ void run_ipc_server(const std::size_t MAX_GEN_COUNT) {
 
         std::println("IPC server connection listening on port: {}", port_num);
 
-        Utils::launch_frontend(port_num);
+        Frontend::launch_frontend(port_num);
     }
     catch (const asio::system_error &e) {
         std::println(std::cerr, "Network initialization failed: {}", e.what());
@@ -147,8 +147,8 @@ void run_ipc_server(const std::size_t MAX_GEN_COUNT) {
         socket.set_option(tcp::no_delay(true));
 
         // Build & send once the cities array to LÖVE2D
-        cities = load_cities();
-        asio::write(socket, asio::buffer(cities_to_json(*cities)));
+        cities = Data::load_cities();
+        asio::write(socket, asio::buffer(Ipc::cities_to_json(*cities)));
     }
     catch (const std::system_error &e) {
         std::println(std::cerr, "TCP handshake failed: {}", e.what());
@@ -160,14 +160,14 @@ void run_ipc_server(const std::size_t MAX_GEN_COUNT) {
     }
 
     try {
-        auto [pop, fitness_scores, rng] = init_ga(*cities);
+        auto [pop, fitness_scores, rng] = Ga::init_ga(*cities);
 
         std::size_t gen_count = 0;
         double last_tour_len = std::numeric_limits<double>::max();
 
         // Temporary end-condition, later will benchmark/further check
         while (gen_count < MAX_GEN_COUNT) {
-            Tour curr_tour = run_gen(pop, fitness_scores, rng, *cities);
+            Tour curr_tour = Ga::run_gen(pop, fitness_scores, rng, *cities);
             gen_count++;
 
             double curr_tour_len = tour_len(curr_tour, *cities);

@@ -152,7 +152,6 @@ endif ()
 ExternalProject_Add(luajit
     GIT_REPOSITORY https://github.com/LuaJIT/LuaJIT.git
     GIT_TAG        2a8e017ef1ece6a95b983ffca073d30609dce7c4
-    GIT_SHALLOW    TRUE
     SOURCE_DIR     ${CMAKE_BINARY_DIR}/_luajit
     BUILD_IN_SOURCE TRUE
     CONFIGURE_COMMAND ""

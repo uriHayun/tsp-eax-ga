@@ -1,0 +1,26 @@
+# Top-most .editorconfig file: stop searching parent folders for other .editorconfig files
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# Markdown: 2 trailing spaces mean a line break, so don't trim them
+[*.md]
+trim_trailing_whitespace = false
+
+# JSON: indented 2 spaces
+[*.json]
+indent_size = 2
+
+# YAML (.clang-format): indented 2 spaces
+[.clang-format]
+indent_size = 2
+
+# Windows batch files require CRLF, matching .gitattributes file
+[*.{bat,cmd}]
+end_of_line = crlf

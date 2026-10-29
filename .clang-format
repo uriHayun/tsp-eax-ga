@@ -1,0 +1,33 @@
+BasedOnStyle: LLVM
+
+# Indentation
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+# Max line length: break lines too long
+ColumnLimit: 100
+
+# Braces
+BreakBeforeBraces: Attach  # K&R
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortLambdasOnASingleLine: Empty
+
+# Pointers & references: int *ptr
+DerivePointerAlignment: false
+PointerAlignment: Right
+
+# Sort library-includes alphabetically
+SortIncludes: CaseSensitive
+
+# if(condition) -> if (condition)
+SpaceBeforeParens: ControlStatements
+
+# Prevent extra spaces inside paranthesis/square-brackets
+SpacesInParentheses: false
+SpacesInSquareBrackets: false

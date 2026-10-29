@@ -1,0 +1,9 @@
+# Git detects text files, store LF in the repo & check out LF on every OS
+* text=auto eol=lf
+
+# Match CRLF for Windows batch files ehich require CRLF - override earlier rules
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# GitHub: don't count vendored code in the repo's language stats
+external/** linguist-vendored
