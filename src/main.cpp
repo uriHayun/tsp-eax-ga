@@ -53,6 +53,10 @@ int main() {
     // Load environment variables from a local .env file into process environment
     dotenv::load(".env");
 
+    // For debugging
+    const auto username = dotenv::get<std::string>("GEONAMES_USERNAME");
+    std::println("GEONAMES_USERNAME loaded: {}", username.has_value());
+
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
     try { Ipc::run_ipc_server(); }

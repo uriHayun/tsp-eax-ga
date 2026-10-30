@@ -7,6 +7,9 @@ local mercator = require "pseudo_mercator"
 local FALLBACK_PORT_NUM = 56767  -- Inside of IANA private/dynamic range (49152–65535)
 
 function love.load(arg)
+    -- Debugging
+    print(love.filesystem.getSaveDirectory())
+
     log("Load start!")
     ipc.connect(tonumber(arg[1]) or FALLBACK_PORT_NUM)
     log("Connected!")

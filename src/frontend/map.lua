@@ -13,7 +13,7 @@ local MAP_SCALE = 2
 
 local MAP_SIZE_ZOOM0 = 256  -- Points-wide for zoom 0
 local MAX_ZOOM = 18         -- The max zoom Google Maps Static API allows
-local PADDING = 1.1         -- Extra 10% room - so no city could lie on map edge
+local PADDING = 1.05        -- Extra 5% room - so no city could lie on map edge
 
 local function build_markers(cities)
     -- Small, red markers (pins) for each city of the TSP
@@ -141,7 +141,7 @@ end
 
 local http_ok = 200
 
-local png_sig = love.filesystem.read("images/window-icon/window_icon.png", 8) or "\137PNG\r\n\26\n"
+local png_sig = "\137PNG\r\n\26\n"
 
 -- Returns whether an image is of type PNG by checking if its 1st 8 bytes are the PNG image's signature
 local is_png = function(img) return img:sub(1, 8) ==  png_sig end

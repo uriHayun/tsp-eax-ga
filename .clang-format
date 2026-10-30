@@ -23,11 +23,16 @@ DerivePointerAlignment: false
 PointerAlignment: Right
 
 # Sort library-includes alphabetically
-SortIncludes: CaseSensitive
+SortIncludes:
+  Enabled: true
+  IgnoreCase: false
 
 # if(condition) -> if (condition)
 SpaceBeforeParens: ControlStatements
 
 # Prevent extra spaces inside paranthesis/square-brackets
-SpacesInParentheses: false
+SpacesInParensOptions:
+  InConditionalStatements: false
+  InCStyleCasts: false
+  InEmptyParentheses: false
 SpacesInSquareBrackets: false
