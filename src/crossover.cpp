@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <functional>
 #include <limits>
+#include <optional>
 #include <random>
 #include <tuple>
 #include <utility>
@@ -218,7 +219,7 @@ AbCycles build_ab_cycles(
             assert(found_next && "AB-cycle failed to close: dead end before returning to start city");
         }
 
-        cycles.push_back(curr_cycle);
+        cycles.push_back(std::move(curr_cycle));
     }
     
     return cycles;
@@ -358,13 +359,12 @@ std::vector<int> improve_e_set(
     while (consecutive_non_improving_iter_count < MAX_CONSECUTIVE_NON_IMPROVING_ITERS_COUNT) {
 
         // Update freeze-iterations passed each iteration for all cycles
-        for (int i = 0; i < num_cycles; i++) {
+        for (std::size_t i = 0; i < num_cycles; i++) {
             freeze_iters_left[i]--;
         }
 
         // Valid cycle with smallest "delta"
-        std::size_t best_cand_idx = -1;
-
+        std::optional<std::size_t> best_cand_idx;
         int best_delta = std::numeric_limits<int>::max();
 
         auto consider_cand = [&](std::size_t idx, int delta) {
@@ -374,7 +374,7 @@ std::vector<int> improve_e_set(
             }
         };
 
-        for (int i = 0; i < num_cycles; i++) {
+        for (std::size_t i = 0; i < num_cycles; i++) {
 
             if (i == anchor_cycle_idx ||
                 freeze_iters_left[i] > 0) {
@@ -394,27 +394,24 @@ std::vector<int> improve_e_set(
                 delta = -(shared_cities_total[i] - 2*shared_cities_with_selected[i]);
                 consider_cand(i, delta);
             }
-
-            // Not a valid candidate
-            else {
-                continue;
-            }
         }
 
         // Apply move which scan found best
         // No valid candidate found, no move to apply - only anchor cycle is left in the E-set
-        if (best_cand_idx != -1) {
-            if (is_used[best_cand_idx]) {
-                remove_cycle(best_cand_idx);
-            }
-            
-            else {
-                add_cycle(best_cand_idx);
-            }
-
-            // "Freeze" the just-added cycle so it doesn't get instantly resersed-flipped
-            freeze_iters_left[best_cand_idx] = MAX_FROZEN_ITERS;
+        if (!best_cand_idx) {
+            break;
         }
+
+        if (is_used[*best_cand_idx]) {
+            remove_cycle(*best_cand_idx);
+        }
+
+        else {
+            add_cycle(*best_cand_idx);
+        }
+
+        // "Freeze" the just-added cycle so it doesn't get instantly resersed-flipped
+        freeze_iters_left[best_cand_idx] = MAX_FROZEN_ITERS;
 
         // Check if iteration set new record for lowest (best) conflictingCitiesCount
         if (conflicting_cities_count < best_conflicting_cities_count) {
@@ -430,7 +427,7 @@ std::vector<int> improve_e_set(
 
     // Convert used-cycle boolean array to best cycle-index array to return
     std::vector<int> best_indices;
-    for (int i = 0; i < num_cycles; i++) {
+    for (std::size_t i = 0; i < num_cycles; i++) {
         if (best_is_used[i]) {
             best_indices.push_back(i);
         }
@@ -758,36 +755,35 @@ namespace Eax {
 using namespace Detail;
 
 // TODO: comment here
-std::tuple<Edges, AbCycles> init_crossover(const Tour &parent_a, const Tour &parent_b) {
+std::tuple<Edges, AbCycles, AbCycleWeights, std::vector<int>> init_crossover(const Tour &parent_a, const Tour &parent_b, const Cities &cities) {
     // STEP 1: build temporary AB-graph to produce AB-cycles
 
-    const Edges edges_a = get_edges(parent_a);
+    Edges edges_a = get_edges(parent_a);
     const Edges edges_b = get_edges(parent_b);
 
-    const TaggedEdges tagged_edges = tag_edges_with_parent(edges_a, edges_b);
+    const Edges edges_a_exclu = get_unique_edges(edges_a, edges_b);
+    const Edges edges_b_exclu = get_unique_edges(edges_b, edges_a);
+
+    const TaggedEdges tagged_edges = tag_edges_with_parent(edges_a_exclu, edges_b_exclu);
 
     const AbGraph graph = build_ab_graph(tagged_edges, parent_a.size());
 
     // STEP 2: produce AB-cycles from the AB-graph
 
-    const AbCycles cycles = build_ab_cycles(graph, tagged_edges);
+    AbCycles cycles = build_ab_cycles(graph, tagged_edges);
 
-    return { edges_a, cycles };
+    AbCycleWeights weights = build_ab_cycle_weights(cycles, cities.size());
+    std::vector<int> cycle_half_edge_counts = get_cycle_half_edge_counts(cycles);
+
+    return { std::move(edges_a), std::move(cycles), std::move(weights), std::move(cycle_half_edge_counts) };
 }
 
 // TODO: change comment:
 // Performs Edge Assembly Crossover (EAX) between 2 parent tours,
 // and returns the resulting offspring (child)
-Tour crossover(const AbCycles &cycles, const Edges &edges_a, const Cities cities) {
+Tour crossover(const AbCycles &cycles, const Edges &edges_a, const Cities &cities, const AbCycleWeights &weights, const std::vector<int> &cycle_half_edge_counts, std::mt19937_64 &rng) {
 
     // STEP 3: select a subset (E-set) of AB-cycles to form the E-set for the crossover operation
-
-    const AbCycleWeights weights = build_ab_cycle_weights(cycles, cities.size());
-    
-    const std::vector<int> cycle_half_edge_counts = get_cycle_half_edge_counts(cycles);
-
-    std::random_device rd;
-    std::mt19937_64 rng(rd());
 
     const ESet e_set = select_e_set(cycles, weights, cycle_half_edge_counts, rng);
 
@@ -798,10 +794,10 @@ Tour crossover(const AbCycles &cycles, const Edges &edges_a, const Cities cities
 
     // STEP 5: connect all sub-tours into a tour to generate a valid offspring
 
-    const Subtours subtours = decompose_edges_into_subtours(initial_offspring_edges,
+    Subtours subtours = decompose_edges_into_subtours(initial_offspring_edges,
         cities.size());
 
-    const Edges offspring_edges = merge_subtours_to_tour(subtours, cities);
+    const Edges offspring_edges = merge_subtours_to_tour(std::move(subtours), cities);
 
     Tour offspring = edges_to_tour(offspring_edges, cities.size());
 

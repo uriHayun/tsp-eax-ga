@@ -572,7 +572,7 @@ std::tuple<Tours, std::vector<double>, std::mt19937_64> init_ga(const Cities &ci
 
 // Runs one generation of the GA (TSP-EAX-GA adapted - e.g., no mutation step):
 // parents selection, offspring evalution, offspring replacement.
-// Returns the offspring if is better than parent, parent otherwise
+// Returns the best of NUM_CHILDREN offpring children
 Tour run_gen(Tours &pop, std::vector<double> &fitness_scores, std::mt19937_64 &rng, const Cities &cities) {
     using Eax::init_crossover;
     using Eax::crossover;
@@ -580,17 +580,37 @@ Tour run_gen(Tours &pop, std::vector<double> &fitness_scores, std::mt19937_64 &r
     const std::size_t parent_a_idx = tourney_select(pop, cities, fitness_scores, rng);
     const std::size_t parent_b_idx = tourney_select(pop, cities, fitness_scores, rng);
 
-    auto [edges_a, cycles] = init_crossover(pop[parent_a_idx], pop[parent_b_idx]);
-    const Tour offspring = crossover(cycles, edges_a, cities);
+    auto [edges_a, cycles, weights, half_edge_counts] = init_crossover(pop[parent_a_idx], pop[parent_b_idx], cities);
 
-    if (tour_len(offspring, cities) > tour_len(pop[parent_a_idx], cities)) {
+    if (cycles.empty()) {
         return pop[parent_a_idx];
     }
 
-    pop[parent_a_idx] = offspring;
-    fitness_scores[parent_a_idx] = fitness(offspring, cities);
+    // Several children a parent-pair, keeping the shortest (best)
+    constexpr int NUM_CHILDREN = 10;
 
-    return offspring;
+    Tour best_child;
+
+    double best_len = std::numeric_limits<double>::infinity();
+
+    for (int i = 0; i < NUM_CHILDREN; i++) {
+        Tour child = crossover(cycles, edges_a, cities, weights, half_edge_counts, rng);
+        const double len = tour_len(child, cities);
+
+        if (len < best_len) {
+            best_len = len;
+            best_child = std::move(child);
+        }
+    }
+
+    if (best_len > tour_len(pop[parent_a_idx], cities)) {
+        return pop[parent_a_idx];
+    }
+
+    pop[parent_a_idx] = best_child;
+    fitness_scores[parent_a_idx] = fitness(best_child, cities);
+
+    return best_child;
 }
 
 }  // Closing namespace Tsp::Ga
