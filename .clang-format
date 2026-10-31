@@ -8,8 +8,14 @@ UseTab: Never
 # Max line length: break lines too long
 ColumnLimit: 100
 
+# Indent 4 spaces after the open bracket, instead of aligning to the bracket
+AlignAfterOpenBracket: Align
+ContinuationIndentWidth: 4
+BinPackParameters: OnePerLine
+BinPackArguments: false
+
 # Braces
-BreakBeforeBraces: Attach  # K&R
+BreakBeforeBraces: Attach # K&R
 AllowShortBlocksOnASingleLine: Never
 AllowShortCaseLabelsOnASingleLine: false
 AllowShortEnumsOnASingleLine: false
@@ -30,9 +36,14 @@ SortIncludes:
 # if(condition) -> if (condition)
 SpaceBeforeParens: ControlStatements
 
-# Prevent extra spaces inside paranthesis/square-brackets
+# Prevent extra spaces inside parentheses/square-brackets
 SpacesInParensOptions:
   InConditionalStatements: false
   InCStyleCasts: false
   InEmptyParentheses: false
 SpacesInSquareBrackets: false
+
+# Trailing comments: at least spaces before "//", leave alignment as-is
+SpacesBeforeTrailingComments: 2
+AlignTrailingComments:
+  Kind: Leave

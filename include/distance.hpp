@@ -10,7 +10,9 @@
 // Note: < ~0.5% error (typically less), not worth using more precise formulas (e.g., Vincenty's)
 inline double haversine_distance(const City &city1, const City &city2) {
     // Convert coordinates (in degrees) to radians
-    auto degrees_to_radians = [](const double deg) { return deg * std::numbers::pi / 180.0; };
+    auto degrees_to_radians = [](const double deg) {
+        return deg * std::numbers::pi / 180.0;
+    };
 
     const double lat1 = degrees_to_radians(city1.lat);
     const double lng1 = degrees_to_radians(city1.lng);
@@ -22,8 +24,8 @@ inline double haversine_distance(const City &city1, const City &city2) {
     const double delta_lng = lng2 - lng1;
 
     // Compute haversine of the central angle in order to compute angular distance ("c") later
-    const double a = std::pow(std::sin(delta_lat / 2.0), 2)
-        + std::cos(lat1) * std::cos(lat2) * std::pow(std::sin(delta_lng / 2.0), 2);
+    const double a = std::pow(std::sin(delta_lat / 2.0), 2) +
+                     std::cos(lat1) * std::cos(lat2) * std::pow(std::sin(delta_lng / 2.0), 2);
 
     // Compute angular distance (radians)
     const double c = 2 * std::atan2(std::sqrt(a), std::sqrt(1 - a));

@@ -1,10 +1,10 @@
 // Prevent windows.h from defining min/max macros that conflict with std::min/std::max
 #define NOMINMAX
 
+#include "main.hpp"
 #include "city.hpp"
 #include "crossover.hpp"
 #include "distance.hpp"
-#include "main.hpp"
 #include "tour.hpp"
 
 #include <algorithm>
@@ -35,14 +35,14 @@
 #include <whereami++.hpp>
 
 #if defined(_WIN32)
-    #include <windows.h>
+#include <windows.h>
 #else
-    #include <unistd.h>
+#include <unistd.h>
 #endif
 
 #if defined(__APPLE__)
-    // Required to resume with TARGET_OS_OSX (macOS)
-    #include <TargetConditionals.h>
+// Required to resume with TARGET_OS_OSX (macOS)
+#include <TargetConditionals.h>
 #endif
 
 using Json = nlohmann::json;
@@ -59,8 +59,9 @@ int main() {
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
-    try { Ipc::run_ipc_server(); }
-    catch (const std::exception &e) {
+    try {
+        Ipc::run_ipc_server();
+    } catch (const std::exception &e) {
         std::println(std::cerr, "Error: {}", e.what());
         curl_global_cleanup();
         return 1;
@@ -79,7 +80,7 @@ std::string cities_to_json(const Cities &cities) {
     Json json = Json::array();
 
     for (const City &city : cities) {
-        json.push_back({ { "lat", city.lat }, { "lng", city.lng } });
+        json.push_back({{"lat", city.lat}, {"lng", city.lng}});
     }
 
     return json.dump() + '\n';
@@ -93,7 +94,7 @@ std::string tour_to_json(const Tour &tour) {
 
 // Transfers the cities array once, and a tour each generation to Lua LÖVE2D in order to draw later
 // using a standalone Asio TCP socket as an IPC local server connection
-void run_ipc_server(const std::size_t MAX_GEN_COUNT) {
+void run_ipc_server() {
     using tcp = asio::ip::tcp;
 
     asio::io_context io;
@@ -113,12 +114,10 @@ void run_ipc_server(const std::size_t MAX_GEN_COUNT) {
         std::println("IPC server connection listening on port: {}", port_num);
 
         Frontend::launch_frontend(port_num);
-    }
-    catch (const asio::system_error &e) {
+    } catch (const asio::system_error &e) {
         std::println(std::cerr, "Network initialization failed: {}", e.what());
         return;
-    }
-    catch (const std::exception &e) {
+    } catch (const std::exception &e) {
         std::println(std::cerr, "Failed to launch LÖVE2D frontend: {}", e.what());
         return;
     }
@@ -138,7 +137,8 @@ void run_ipc_server(const std::size_t MAX_GEN_COUNT) {
 
         if (!connected) {
             acceptor->cancel();
-            throw std::runtime_error(std::format("LÖVE2D didn't connect in time ({}s)", LOVE2D_CONN_TIMEOUT.count()));
+            throw std::runtime_error(
+                std::format("LÖVE2D didn't connect in time ({}s)", LOVE2D_CONN_TIMEOUT.count()));
         }
 
         if (accept_ec) {
@@ -153,12 +153,10 @@ void run_ipc_server(const std::size_t MAX_GEN_COUNT) {
         // Build & send once the cities array to LÖVE2D
         cities = Data::load_cities();
         asio::write(socket, asio::buffer(Ipc::cities_to_json(*cities)));
-    }
-    catch (const std::system_error &e) {
+    } catch (const std::system_error &e) {
         std::println(std::cerr, "TCP handshake failed: {}", e.what());
         return;
-    }
-    catch (const std::exception &e) {
+    } catch (const std::exception &e) {
         std::println(std::cerr, "Failed to load cities: {}", e.what());
         return;
     }
@@ -167,29 +165,33 @@ void run_ipc_server(const std::size_t MAX_GEN_COUNT) {
         auto [pop, fitness_scores, rng] = Ga::init_ga(*cities);
 
         std::size_t gen_count = 0;
-        double last_tour_len = std::numeric_limits<double>::max();
+        std::size_t stagnant_gens = 0;
+        double best_tour_len = std::numeric_limits<double>::max();
 
         // Temporary end-condition, later will benchmark/further check
-        while (gen_count < MAX_GEN_COUNT) {
+        while (stagnant_gens < Config::MAX_STAGNANT_GENS && gen_count < Config::MAX_GEN_COUNT) {
             Tour curr_tour = Ga::run_gen(pop, fitness_scores, rng, *cities);
             gen_count++;
 
             double curr_tour_len = tour_len(curr_tour, *cities);
 
-            if (curr_tour_len < last_tour_len) {
-                last_tour_len = curr_tour_len;
+            // Tour improved
+            if (curr_tour_len < best_tour_len) {
+                best_tour_len = curr_tour_len;
+                stagnant_gens = 0;
+            } else {
+                stagnant_gens++;
             }
 
             // Send the chosen tour to LÖVE2D to draw each generation
             asio::write(socket, asio::buffer(tour_to_json(curr_tour)));
         }
-    }
-    catch (const asio::system_error &e) {
+    } catch (const asio::system_error &e) {
         std::println(std::cerr, "LÖVE2D disconnected mid-simulation: {}", e.what());
     }
 }
 
-}  // Closing namespace Tsp::Ipc
+}  // namespace Tsp::Ipc
 
 namespace Tsp::Frontend {
 
@@ -200,167 +202,171 @@ void launch_frontend(const unsigned short PORT_NUM) {
 
     path love2d_path;
     path bin_dir = path(whereami::executable_path()).parent_path();  // Program folder
-    path lua_dir = bin_dir / "src/frontend";  // Lua folder
+    path lua_dir = bin_dir / "src/frontend";                         // Lua folder
 
     auto love2d_path_exists = [&]() {
         if (!std::filesystem::exists(love2d_path)) {
             throw std::runtime_error(std::format("Failed to launch LÖVE2D frontend: {} not found",
-                love2d_path.string()));
+                                                 love2d_path.string()));
         }
     };
 
-    // Launch LÖVE2D for Windows using Win32 API
-    #if defined(_WIN32)
-        love2d_path = bin_dir / "love.exe";
-        love2d_path_exists();
+// Launch LÖVE2D for Windows using Win32 API
+#if defined(_WIN32)
+    love2d_path = bin_dir / "love.exe";
+    love2d_path_exists();
 
-        // std::wstring, non-constant string required for .data() for CreateProcessW() (launch function)
-        std::wstring cmd = std::format(L"\"{}\" \"{}\" {}",
-            love2d_path.wstring(),
-            lua_dir.wstring(),
-            std::to_wstring(PORT_NUM));  // Gets loaded as "arg" in love.load(arg)
+    // std::wstring, non-constant string required for .data() for CreateProcessW() (launch function)
+    std::wstring cmd =
+        std::format(L"\"{}\" \"{}\" {}",
+                    love2d_path.wstring(),
+                    lua_dir.wstring(),
+                    std::to_wstring(PORT_NUM));  // Gets loaded as "arg" in love.load(arg)
 
-        // Windows API's CreateProcessW() (launch function) configuration
-        STARTUPINFOW si = { sizeof(si) };  // Default configuration for window - LÖVE2D configures its own window
-        PROCESS_INFORMATION pi;           // Empty container to receive LÖVE2D process info from Windows
-        ZeroMemory(&pi, sizeof(pi));      // Remove garbage data from RAM to prevent bugs & crashes
+    // Windows API's CreateProcessW() (launch function) configuration
+    STARTUPINFOW si = {
+        sizeof(si)};  // Default configuration for window - LÖVE2D configures its own window
+    PROCESS_INFORMATION pi;  // Empty container to receive LÖVE2D process info from Windows
+    ZeroMemory(&pi, sizeof(pi));  // Remove garbage data from RAM to prevent bugs & crashes
 
-        if (!CreateProcessW(
-            nullptr,     // Omitted app name
-            cmd.data(),  // Launch command <LÖVE2D path, Lua directory, arg>
-            nullptr,     // Main container cannot be inherited by child processes
-            nullptr,     // Execution engine cannot be inherited by child processes
-            FALSE,       // Starts fresh - no inherited handles
-            0,           // Opens as a normal desktop window with no special flags
-            nullptr,     // Uses same environment variables as this process (C++ backend)
-            nullptr,     // Uses same working directory as this process (C++ backend)
-            &si,         // Startup configuration for LÖVE2D process
-            &pi          // Receives LÖVE2D process info from Windows
-        )) {
-            throw std::runtime_error(std::format("Failed to launch LÖVE2D frontend: {}", GetLastError()));
-        }
+    if (!CreateProcessW(nullptr,  // Omitted app name
+                        cmd.data(),  // Launch command <LÖVE2D path, Lua directory, arg>
+                        nullptr,  // Main container cannot be inherited by child processes
+                        nullptr,  // Execution engine cannot be inherited by child processes
+                        FALSE,  // Starts fresh - no inherited handles
+                        0,  // Opens as a normal desktop window with no special flags
+                        nullptr,  // Uses same environment variables as this process (C++ backend)
+                        nullptr,  // Uses same working directory as this process (C++ backend)
+                        &si,  // Startup configuration for LÖVE2D process
+                        &pi  // Receives LÖVE2D process info from Windows
+                        )) {
+        throw std::runtime_error(
+            std::format("Failed to launch LÖVE2D frontend: {}", GetLastError()));
+    }
 
-        // Clean up handles - prevent memory leaks
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
+    // Clean up handles - prevent memory leaks
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
 
-    // Launch LÖVE2D window for macOS & Linux based OSs
-    #elif TARGET_OS_OSX || defined(__linux__)
-        love2d_path = bin_dir / "love";
-        love2d_path_exists();
+// Launch LÖVE2D window for macOS & Linux based OSs
+#elif TARGET_OS_OSX || defined(__linux__)
+    love2d_path = bin_dir / "love";
+    love2d_path_exists();
 
-        pid_t pid = fork();
+    pid_t pid = fork();
 
-        // Failed to launch LÖVE2D frontend - couldn't create a new child process
-        if (pid < 0) {
-            throw std::runtime_error("Failed to launch LÖVE2D frontend: couldn't create a new child process");
-        }
+    // Failed to launch LÖVE2D frontend - couldn't create a new child process
+    if (pid < 0) {
+        throw std::runtime_error(
+            "Failed to launch LÖVE2D frontend: couldn't create a new child process");
+    }
 
-        // LÖVE2D is the child process - C++ backend can compute more tours 
-        // (while LÖVE2D draws the previous tour)
-        if (pid != 0) {
-            return;
-        }
+    // LÖVE2D is the child process - C++ backend can compute more tours
+    // (while LÖVE2D draws the previous tour)
+    if (pid != 0) {
+        return;
+    }
 
-        // Create LÖVE2D child process which runs simultaneously with the C++ backend
-        execl(love2d_path.c_str(),               // Program path to launch (LÖVE2D)
-              love2d_path.c_str(),               // argv[0]: program name (LÖVE2D)
-              lua_dir.c_str(),                   // argv[1]: Lua directory folder
-              std::to_string(PORT_NUM).c_str(),  // argv[2]: port number argument - gets loaded in "arg" in love.load(arg)
-              static_cast<char *>(nullptr));     // Terminate argument list
+    // Create LÖVE2D child process which runs simultaneously with the C++ backend
+    execl(love2d_path.c_str(),  // Program path to launch (LÖVE2D)
+          love2d_path.c_str(),  // argv[0]: program name (LÖVE2D)
+          lua_dir.c_str(),      // argv[1]: Lua directory folder
+          std::to_string(PORT_NUM)
+              .c_str(),  // argv[2]: port number argument - gets loaded in "arg" in love.load(arg)
+          static_cast<char *>(nullptr));  // Terminate argument list
 
-        // Terminate child process - reached only if execl() fails
-        _exit(EXIT_FAILURE);
+    // Terminate child process - reached only if execl() fails
+    _exit(EXIT_FAILURE);
 
-    // Unsupported OS - not Windows, macOS, or Linux based
-    #else
-        throw std::runtime_error("Failed to launch LÖVE2D frontend: unsupported OS");
-    #endif
+// Unsupported OS - not Windows, macOS, or Linux based
+#else
+    throw std::runtime_error("Failed to launch LÖVE2D frontend: unsupported OS");
+#endif
 }
 
-}  // Closing namespace Tsp::Frontend
+}  // namespace Tsp::Frontend
 
 namespace Tsp::Data {
 
 // Fetches NUM_CITIES populated, US places from GeoNames API,
 // and returnes their coordinates
-Cities load_cities(const std::size_t &NUM_CITIES) {
-CURL *curl = curl_easy_init();
-if (!curl) {
-    // HTTP request failed
-    throw std::runtime_error("Failed to initialize CURL\n");
-}
+Cities load_cities() {
+    CURL *curl = curl_easy_init();
+    if (!curl) {
+        // HTTP request failed
+        throw std::runtime_error("Failed to initialize CURL\n");
+    }
 
-std::string response;
+    std::string response;
 
-const std::string GEONAMES_USERNAME = dotenv::get<std::string>("GEONAMES_USERNAME").value_or("");
-if (GEONAMES_USERNAME.empty()) {
+    const std::string GEONAMES_USERNAME =
+        dotenv::get<std::string>("GEONAMES_USERNAME").value_or("");
+    if (GEONAMES_USERNAME.empty()) {
+        curl_easy_cleanup(curl);
+
+        throw std::runtime_error("GEONAMES_USERNAME environment variable is not set\n");
+    }
+
+    const std::string URL = std::format("https://secure.geonames.org/searchJSON"
+                                        "?country=US&featureClass=P&maxRows={}&username={}",
+                                        Config::NUM_CITIES,
+                                        GEONAMES_USERNAME);
+
+    curl_easy_setopt(curl, CURLOPT_URL, URL.c_str());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, receive_data);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+    // Follow HTTP redirects (301, 302) automatically
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+
+    // Prevent the request from hanging indefinitely by limiting the connection and total timeouts
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+
+    CURLcode result = curl_easy_perform(curl);
+    if (result != CURLE_OK) {
+        curl_easy_cleanup(curl);
+
+        throw std::runtime_error("Failed to perform CURL request\n");
+    }
+
+    long http_status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
+    if (http_status != 200) {
+        curl_easy_cleanup(curl);
+
+        throw std::runtime_error(
+            std::format("HTTP request failed with status code: {}\n", http_status));
+    }
+
+    if (response.empty()) {
+        curl_easy_cleanup(curl);
+
+        throw std::runtime_error("Received empty response\n");
+    }
+
     curl_easy_cleanup(curl);
 
-    throw std::runtime_error("GEONAMES_USERNAME environment variable is not set\n");
-}
+    Cities cities;
 
-const std::string URL = std::format("https://secure.geonames.org/searchJSON"
-    "?country=US&featureClass=P&maxRows={}&username={}", NUM_CITIES, GEONAMES_USERNAME);
-
-curl_easy_setopt(curl, CURLOPT_URL, URL.c_str());
-curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, receive_data);
-curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-
-// Follow HTTP redirects (301, 302) automatically
-curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-
-// Prevent the request from hanging indefinitely by limiting the connection and total timeouts
-curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
-curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
-
-CURLcode result = curl_easy_perform(curl);
-if (result != CURLE_OK) {
-    curl_easy_cleanup(curl);
-
-    throw std::runtime_error("Failed to perform CURL request\n");
-}
-
-long http_status = 0;
-curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
-if (http_status != 200) {
-    curl_easy_cleanup(curl);
-
-    throw std::runtime_error(std::format("HTTP request failed with status code: {}\n", http_status));
-}
-
-if (response.empty()) {
-    curl_easy_cleanup(curl);
-
-    throw std::runtime_error("Received empty response\n");
-}
-
-curl_easy_cleanup(curl);
-
-Cities cities;
-
-try {
-    Json data = Json::parse(response);
-    if (!data.contains("geonames") || !data["geonames"].is_array()) {
-        throw std::runtime_error(R"(Invalid response format:
+    try {
+        Json data = Json::parse(response);
+        if (!data.contains("geonames") || !data["geonames"].is_array()) {
+            throw std::runtime_error(R"(Invalid response format:
             "GeoNames" key not found or is not an array\n)");
+        }
+
+        for (const auto &city : data["geonames"]) {
+            cities.push_back({std::stod(city["lat"].get<std::string>()),
+                              std::stod(city["lng"].get<std::string>())});
+        }
+    } catch (const Json::parse_error &e) {
+        throw std::runtime_error(std::format("Failed to parse JSON response: {}\n", e.what()));
+    } catch (Json::exception &e) {
+        throw std::runtime_error(std::format("JSON exception occurred: {}\n", e.what()));
     }
 
-    for (const auto &city : data["geonames"]) {
-        cities.push_back({
-            std::stod(city["lat"].get<std::string>()),
-            std::stod(city["lng"].get<std::string>())
-        });
-    }
-}
-catch (const Json::parse_error &e) {
-    throw std::runtime_error(std::format("Failed to parse JSON response: {}\n", e.what()));
-}
-catch (Json::exception &e) {
-    throw std::runtime_error(std::format("JSON exception occurred: {}\n", e.what()));
-}
-
-return cities;
+    return cities;
 }
 
 // libcurl callback to append HTTP received response buffers data to a string
@@ -373,7 +379,7 @@ std::size_t receive_data(void *contents, std::size_t size, std::size_t count, vo
     return total_size;
 }
 
-}  // Closing namespace Tsp::Data
+}  // namespace Tsp::Data
 
 namespace Tsp::Utils {
 
@@ -382,7 +388,7 @@ std::string trim(const std::string &value) {
     return boost::trim_copy_if(value, boost::is_any_of(" \t\r\n"));
 }
 
-}  // Closing namespace Tsp::Utils
+}  // namespace Tsp::Utils
 
 namespace Tsp {
 
@@ -391,20 +397,19 @@ double tour_len(const Tour &tour, const Cities &cities) {
     double total_dist = 0.0;
 
     for (std::size_t i = 0, N = tour.size(); i < N; i++) {
-            // In cities[tour[(i + 1) % tour.size()]] (from-city) wrap around to first 
-            // after last city using modulo operator
-            total_dist += edge_len({ tour[(i + 1) % tour.size()], tour[i] }, 
-                cities);
+        // In cities[tour[(i + 1) % tour.size()]] (from-city) wrap around to first
+        // after last city using modulo operator
+        total_dist += edge_len({tour[(i + 1) % tour.size()], tour[i]}, cities);
     }
 
     return total_dist;
 }
 
-}  // Closing namespace Tsp
+}  // namespace Tsp
 
 namespace Tsp::Ga {
 
-// Builds a single tour derived from cities by greedily 
+// Builds a single tour derived from cities by greedily
 // getting the nearest unvisited each iteration to be the next city
 Tour greedy_tour(const Cities &cities, std::mt19937_64 &rng) {
     std::size_t num_cities = cities.size();
@@ -452,7 +457,7 @@ Tour greedy_tour(const Cities &cities, std::mt19937_64 &rng) {
     return tour;
 }
 
-// Improves a tour using a search heuristic: repeatedly finds a pair of edges whose 
+// Improves a tour using a search heuristic: repeatedly finds a pair of edges whose
 // swapping shortens the tour, until it finds no improving swap left
 void improve_tour(Tour &tour, const Cities &cities) {
     const std::size_t num_cities = cities.size();
@@ -472,11 +477,11 @@ void improve_tour(Tour &tour, const Cities &cities) {
                 std::size_t edge2_a = tour[j];
                 std::size_t edge2_b = tour[(j + 1) % num_cities];
 
-                const double before_dist = haversine_distance(cities[edge1_a], cities[edge1_b])
-                    + haversine_distance(cities[edge2_a], cities[edge2_b]);
+                const double before_dist = haversine_distance(cities[edge1_a], cities[edge1_b]) +
+                                           haversine_distance(cities[edge2_a], cities[edge2_b]);
 
-                const double after_dist = haversine_distance(cities[edge1_a], cities[edge2_a])
-                    + haversine_distance(cities[edge1_b], cities[edge2_b]);
+                const double after_dist = haversine_distance(cities[edge1_a], cities[edge2_a]) +
+                                          haversine_distance(cities[edge1_b], cities[edge2_b]);
 
                 if (after_dist < before_dist) {
                     std::ranges::reverse(tour.begin() + i + 1, tour.begin() + j + 1);
@@ -489,12 +494,11 @@ void improve_tour(Tour &tour, const Cities &cities) {
 
 // Builds initial population of POP_SIZE tours,
 // each constructed greedily then improved with a search heuristic
-Tours build_init_pop(const Cities &cities, std::mt19937_64 &rng,
-    const std::size_t &POP_SIZE) {
+Tours build_init_pop(const Cities &cities, std::mt19937_64 &rng) {
     Tours pop;
-    pop.reserve(POP_SIZE);
+    pop.reserve(Config::POP_SIZE);
 
-    for (std::size_t i = 0 ; i < POP_SIZE; i++) {
+    for (std::size_t i = 0; i < Config::POP_SIZE; i++) {
         Tour tour = greedy_tour(cities, rng);
         improve_tour(tour, cities);
         pop.push_back(std::move(tour));
@@ -526,8 +530,11 @@ double fitness(const Tour &tour, const Cities &cities) {
 
 // Selects the shortest (best) tour from a set of NUM_CANDS candidates
 // using tournament selection
-std::size_t tourney_select(const Tours &pop, const Cities &cities,
-    const std::vector<double> &fitness_scores, std::mt19937_64 &rng, const int NUM_CANDS) {
+std::size_t tourney_select(const Tours &pop,
+                           const Cities &cities,
+                           const std::vector<double> &fitness_scores,
+                           std::mt19937_64 &rng,
+                           const int NUM_CANDS) {
     assert(!pop.empty());
 
     std::uniform_int_distribution<std::size_t> distrib(0, pop.size() - 1);
@@ -567,33 +574,34 @@ std::tuple<Tours, std::vector<double>, std::mt19937_64> init_ga(const Cities &ci
         fitness_scores.push_back(fitness(tour, cities));
     }
 
-    return { std::move(pop), std::move(fitness_scores), std::move(rng) };
+    return {std::move(pop), std::move(fitness_scores), std::move(rng)};
 }
 
 // Runs one generation of the GA (TSP-EAX-GA adapted - e.g., no mutation step):
 // parents selection, offspring evalution, offspring replacement.
 // Returns the best of NUM_CHILDREN offpring children
-Tour run_gen(Tours &pop, std::vector<double> &fitness_scores, std::mt19937_64 &rng, const Cities &cities) {
-    using Eax::init_crossover;
+Tour run_gen(Tours &pop,
+             std::vector<double> &fitness_scores,
+             std::mt19937_64 &rng,
+             const Cities &cities) {
     using Eax::crossover;
+    using Eax::init_crossover;
 
     const std::size_t parent_a_idx = tourney_select(pop, cities, fitness_scores, rng);
     const std::size_t parent_b_idx = tourney_select(pop, cities, fitness_scores, rng);
 
-    auto [edges_a, cycles, weights, half_edge_counts] = init_crossover(pop[parent_a_idx], pop[parent_b_idx], cities);
+    auto [edges_a, cycles, weights, half_edge_counts] =
+        init_crossover(pop[parent_a_idx], pop[parent_b_idx], cities);
 
     if (cycles.empty()) {
         return pop[parent_a_idx];
     }
 
-    // Several children a parent-pair, keeping the shortest (best)
-    constexpr int NUM_CHILDREN = 10;
-
     Tour best_child;
 
     double best_len = std::numeric_limits<double>::infinity();
 
-    for (int i = 0; i < NUM_CHILDREN; i++) {
+    for (int i = 0; i < Config::NUM_CHILDREN; i++) {
         Tour child = crossover(cycles, edges_a, cities, weights, half_edge_counts, rng);
         const double len = tour_len(child, cities);
 
@@ -613,4 +621,4 @@ Tour run_gen(Tours &pop, std::vector<double> &fitness_scores, std::mt19937_64 &r
     return best_child;
 }
 
-}  // Closing namespace Tsp::Ga
+}  // namespace Tsp::Ga

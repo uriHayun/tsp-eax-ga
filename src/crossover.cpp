@@ -1,11 +1,12 @@
-#include "city.hpp"
 #include "crossover.hpp"
+#include "city.hpp"
 #include "distance.hpp"
 #include "edge.hpp"
 #include "tour.hpp"
 
 #include <algorithm>
 #include <array>
+#include <boost/container_hash/hash.hpp>
 #include <cassert>
 #include <cstddef>
 #include <functional>
@@ -18,15 +19,15 @@
 
 namespace Eax::Detail {
 
+constexpr int MAX_CONSECUTIVE_STAGNANT_ITERS = 20;
+constexpr int MAX_FROZEN_ITERS = 10;
+
 // Hash function for using an Edge in an unordered_set
 std::size_t EdgeHash::operator()(const EdgeKey &key) const noexcept {
-    const std::size_t h1 = std::hash<std::size_t>{}(key.first);
-    const std::size_t h2 = std::hash<std::size_t>{}(key.second);
-
-    return h1 ^ (h2 << 1);
+    return boost::hash<EdgeKey>{}(key);
 }
 
-// Extracts all edges from a tour, including the closing edge 
+// Extracts all edges from a tour, including the closing edge
 // from the last city to the first using modulo the tour length
 // e.g., { 1, 4, 2, 3 } to { (1, 4), (4, 2), (2, 3), (3, 1) }
 Edges get_edges(const Tour &tour) {
@@ -37,7 +38,7 @@ Edges get_edges(const Tour &tour) {
     for (std::size_t from_idx = 0, N = tour.size(); from_idx < N; from_idx++) {
         std::size_t to_idx = (from_idx + 1) % N;
 
-        edges.push_back({ tour[from_idx], tour[to_idx] });
+        edges.push_back({tour[from_idx], tour[to_idx]});
     }
 
     return edges;
@@ -46,28 +47,22 @@ Edges get_edges(const Tour &tour) {
 // Returns a standard representation of an edge
 // so that (t, z) and (z, t) are treated as identical
 EdgeKey normalize_edge(const Edge &edge) {
-    return {
-        std::min(edge.from, edge.to),
-        std::max(edge.from, edge.to)
-    };
+    return {std::min(edge.from, edge.to), std::max(edge.from, edge.to)};
 }
 
 // Hash function for using a TaggedEdge in an unordered_set
 std::size_t TaggedEdgeHash::operator()(const TaggedEdge &te) const noexcept {
-    const std::size_t h1 = EdgeHash{}(normalize_edge(te.edge));
-    const std::size_t h2 = std::hash<int>{}(static_cast<int>(te.parent));
+    std::size_t seed = EdgeHash{}(normalize_edge(te.edge));
+    boost::hash_combine(seed, static_cast<int>(te.parent));
 
-    return h1 ^ (h2 << 1);
+    return seed;
 }
 
 // Equality function for using a TaggedEdge in an unordered_set
 // 2 TaggedEdges are considered equal if they:
 // connect the same cities + come from the same parent
-bool TaggedEdgeEqual::operator()(
-    const TaggedEdge &lhs,
-    const TaggedEdge &rhs) const noexcept {
-    return normalize_edge(lhs.edge) == normalize_edge(rhs.edge)
-        && lhs.parent == rhs.parent;
+bool TaggedEdgeEqual::operator()(const TaggedEdge &lhs, const TaggedEdge &rhs) const noexcept {
+    return normalize_edge(lhs.edge) == normalize_edge(rhs.edge) && lhs.parent == rhs.parent;
 }
 
 // Returns whether an edge exists in an edge-set using an
@@ -88,71 +83,63 @@ EdgeSet build_edge_set(const Edges &edges) {
 }
 
 // Returns edges appear in "src" which do not appear in "other"
-Edges get_unique_edges(
-    const Edges &src,
-    const Edges &other) {
+Edges get_unique_edges(const Edges &src, const Edges &other) {
 
-        EdgeSet other_set = build_edge_set(other);
+    EdgeSet other_set = build_edge_set(other);
 
-        Edges unique_edges;
-        unique_edges.reserve(src.size());
+    Edges unique_edges;
+    unique_edges.reserve(src.size());
 
-        for (const Edge &edge : src) {
-            if (!contains_edge(other_set, edge)) {
-                unique_edges.push_back(edge);
-            }
+    for (const Edge &edge : src) {
+        if (!contains_edge(other_set, edge)) {
+            unique_edges.push_back(edge);
         }
-
-        return unique_edges;
     }
+
+    return unique_edges;
+}
 
 // Lables each edge with the parent (A or B) it originated from
-TaggedEdges tag_edges_with_parent(
-    const Edges &edges_a,
-    const Edges &edges_b) {
+TaggedEdges tag_edges_with_parent(const Edges &edges_a, const Edges &edges_b) {
 
-        TaggedEdges edges;
-        edges.reserve(edges_a.size() + edges_b.size());
+    TaggedEdges edges;
+    edges.reserve(edges_a.size() + edges_b.size());
 
-        for (const Edge &edge : edges_a) {
-            edges.push_back({edge, Parent::A});
-        }
-
-        for (const Edge &edge : edges_b) {
-            edges.push_back({ edge, Parent::B });
-        }
-
-        return edges;
+    for (const Edge &edge : edges_a) {
+        edges.push_back({edge, Parent::A});
     }
+
+    for (const Edge &edge : edges_b) {
+        edges.push_back({edge, Parent::B});
+    }
+
+    return edges;
+}
 
 // Builds the AB adjacency graph used to search for AB-cycles
 // Contains just A-only edges or B-only edges, does not contain A and B shared edges
 // Example AB adjacency graph:
-
+//
 // graph[0] = {
 //     { {0, 1}, Parent::A },
 //     { {1, 4}, Parent::B }
 // };
-AbGraph build_ab_graph(
-    const TaggedEdges &edges,
-    std::size_t num_cities) {
-        AbGraph graph(num_cities);
+AbGraph build_ab_graph(const TaggedEdges &edges, std::size_t num_cities) {
+    AbGraph graph(num_cities);
 
-        for (const TaggedEdge &edge : edges) {
-            // Store each edge for both edgepoints
-            // so the graph can be traversed from either city
-            graph[edge.edge.from].push_back(edge);
-            graph[edge.edge.to].push_back(edge);
-        }
-
-        return graph;
+    for (const TaggedEdge &edge : edges) {
+        // Store each edge for both edgepoints
+        // so the graph can be traversed from either city
+        graph[edge.edge.from].push_back(edge);
+        graph[edge.edge.to].push_back(edge);
     }
+
+    return graph;
+}
 
 // Given endpoint of an edge, returns other endpoint
 std::size_t get_other_endpoint(const TaggedEdge &te, std::size_t curr_city) {
-    return (te.edge.from == curr_city)
-        ? te.edge.to
-        : te.edge.from;
+    return (te.edge.from == curr_city) ? te.edge.to : te.edge.from;
 }
 
 // Builds the initial collection of unused edges,
@@ -172,9 +159,7 @@ TaggedEdgeSet build_unused_edges_set(const TaggedEdges &edges) {
 // Transforms the AB-graph into AB-cycles by repeatedly walking an alternating
 // path between A/B edges from an arbitrary edge until returning to the starting
 // city
-AbCycles build_ab_cycles(
-    const AbGraph &graph,
-    const TaggedEdges &edges) {
+AbCycles build_ab_cycles(const AbGraph &graph, const TaggedEdges &edges) {
 
     AbCycles cycles;
 
@@ -183,8 +168,9 @@ AbCycles build_ab_cycles(
     while (!unused_edges.empty()) {
         auto it = unused_edges.begin();
         TaggedEdge start_edge = *it;
-        
+
         std::size_t start_city = start_edge.edge.from;
+        const Parent first_parent = start_edge.parent;
 
         AbCycle curr_cycle;
 
@@ -194,17 +180,15 @@ AbCycles build_ab_cycles(
         while (true) {
             curr_cycle.push_back(curr_edge);
             unused_edges.erase(curr_edge);
-            
+
             curr_city = get_other_endpoint(curr_edge, curr_city);
-            if (curr_city == start_city) {
+            if (curr_city == start_city && curr_edge.parent != first_parent) {
                 break;
             }
 
-            Parent expected_parent = (curr_edge.parent == Parent::A)
-                ? Parent::B
-                : Parent::A;
+            Parent expected_parent = (curr_edge.parent == Parent::A) ? Parent::B : Parent::A;
 
-            // Track whether an adequate (unused of expected parent from currCity) edge was found
+            // Track whether an adequate (unused of expected parent from curr_city) edge was found
             bool found_next = false;
             for (const TaggedEdge &edge : graph[curr_city]) {
                 if (edge.parent != expected_parent || !unused_edges.contains(edge)) {
@@ -216,21 +200,19 @@ AbCycles build_ab_cycles(
                 break;
             }
 
-            assert(found_next && "AB-cycle failed to close: dead end before returning to start city");
+            assert(
+                found_next && "AB-cycle failed to close: dead end before returning to start city");
         }
 
         cycles.push_back(std::move(curr_cycle));
     }
-    
+
     return cycles;
 }
 
 // Selects a subset (E-set) of AB-cycles randomly
-ESet select_e_set_rand(
-    const AbCycles &cycles,
-    std::mt19937_64 &rng,
-    const double INCLUSION_PROB) {
-        
+ESet select_e_set_rand(const AbCycles &cycles, std::mt19937_64 &rng, const double INCLUSION_PROB) {
+
     std::uniform_real_distribution<double> distrib(0.0, 1.0);
 
     ESet e_set;
@@ -245,10 +227,8 @@ ESet select_e_set_rand(
 }
 
 // Builds measurements (weights) for each cycle based on their relationships
-AbCycleWeights build_ab_cycle_weights(
-    const AbCycles &cycles,
-    const std::size_t num_cities) {
-    
+AbCycleWeights build_ab_cycle_weights(const AbCycles &cycles, const std::size_t num_cities) {
+
     AbCycleWeights weights;
 
     const std::size_t num_cycles = cycles.size();
@@ -265,13 +245,13 @@ AbCycleWeights build_ab_cycle_weights(
                 continue;
             }
 
-            for (int city : {te.edge.from, te.edge.to}) {
+            for (std::size_t city : {te.edge.from, te.edge.to}) {
                 if (owning_cycle[city][0] == -1) {
-                    owning_cycle[city][0] = i;
+                    owning_cycle[city][0] = static_cast<int>(i);
                 }
 
                 else if (owning_cycle[city][1] == -1) {
-                    owning_cycle[city][1] = i;
+                    owning_cycle[city][1] = static_cast<int>(i);
                 }
             }
         }
@@ -280,7 +260,7 @@ AbCycleWeights build_ab_cycle_weights(
     for (std::size_t city = 0; city < num_cities; city++) {
         int cycle_a = owning_cycle[city][0];
         int cycle_b = owning_cycle[city][1];
-        
+
         if (cycle_a == -1 || cycle_b == -1 || cycle_a == cycle_b) {
             continue;
         }
@@ -302,16 +282,14 @@ std::vector<int> improve_e_set(
     const std::vector<std::size_t> &initial_cycles_idxs,
     const std::vector<int> &shared_cities_total,
     const std::vector<std::vector<int>> &shared_cities_between,
-    const std::vector<int> &cycle_half_edge_count,
-    std::mt19937_64 &rng,
-    const int MAX_CONSECUTIVE_NON_IMPROVING_ITERS_COUNT,
-    const int MAX_FROZEN_ITERS) {
+    const int max_stagnant_iters,
+    const int max_frozen_iters) {
 
     const std::size_t num_cycles = shared_cities_total.size();
 
-    // "Freeze" cycle when flipped for 10 iterations, preventing it from being immediately flipped back over again
-    // (cycles flipped had the highest score among the other cycles,
-    // this prevents then from naturally getting reverse-flipped fcountless times)
+    // "Freeze" cycle when flipped for 10 iterations, preventing it from being immediately flipped
+    // back over again (cycles flipped had the highest score among the other cycles, this prevents
+    // then from naturally getting reverse-flipped fcountless times)
     std::vector<int> freeze_iters_left(num_cycles, 0);
 
     // is_used[i]: whether cycle "i" is currently in the E-set
@@ -319,28 +297,32 @@ std::vector<int> improve_e_set(
 
     int conflicting_cities_count = 0;
 
-    // For cycle "i": total number of boundary-cities shared with 
+    // For cycle "i": total number of boundary-cities shared with
     // every currently-selected/used cycle in the E-set summed together
     // shared_cities_with_selected[i] =
     // sum over each selected (used in the E-set) cycle "s" of shared_cities_between[i][s]
     std::vector<int> shared_cities_with_selected(num_cycles, 0);
 
-    // Adds cycle "added_idx" to the E-set and updates its dependent states, "remove_cycle" exact inverse
+    // Adds cycle "added_idx" to the E-set and updates its dependent states, "remove_cycle" exact
+    // inverse
     auto add_cycle = [&](std::size_t added_idx) {
         is_used[added_idx] = true;
 
-        conflicting_cities_count += shared_cities_total[added_idx] - 2*shared_cities_with_selected[added_idx];
+        conflicting_cities_count +=
+            shared_cities_total[added_idx] - 2 * shared_cities_with_selected[added_idx];
 
         for (std::size_t i = 0; i < num_cycles; i++) {
             shared_cities_with_selected[i] += shared_cities_between[i][added_idx];
         }
     };
 
-    // Removes cycle "removed_idx" from the E-set and updates its dependent states, "add_cycle" exact inverse
+    // Removes cycle "removed_idx" from the E-set and updates its dependent states, "add_cycle"
+    // exact inverse
     auto remove_cycle = [&](std::size_t removed_idx) {
         is_used[removed_idx] = false;
 
-        conflicting_cities_count -= shared_cities_total[removed_idx] - 2*shared_cities_with_selected[removed_idx];
+        conflicting_cities_count -=
+            shared_cities_total[removed_idx] - 2 * shared_cities_with_selected[removed_idx];
 
         for (std::size_t i = 0; i < num_cycles; i++) {
             shared_cities_with_selected[i] -= shared_cities_between[i][removed_idx];
@@ -353,10 +335,10 @@ std::vector<int> improve_e_set(
     }
 
     std::vector<bool> best_is_used = is_used;
-    int consecutive_non_improving_iter_count = 0;
+    int consecutive_stagnant_iter_count = 0;
     int best_conflicting_cities_count = conflicting_cities_count;  // The lower - the better
 
-    while (consecutive_non_improving_iter_count < MAX_CONSECUTIVE_NON_IMPROVING_ITERS_COUNT) {
+    while (consecutive_stagnant_iter_count < max_stagnant_iters) {
 
         // Update freeze-iterations passed each iteration for all cycles
         for (std::size_t i = 0; i < num_cycles; i++) {
@@ -376,22 +358,21 @@ std::vector<int> improve_e_set(
 
         for (std::size_t i = 0; i < num_cycles; i++) {
 
-            if (i == anchor_cycle_idx ||
-                freeze_iters_left[i] > 0) {
+            if (i == anchor_cycle_idx || freeze_iters_left[i] > 0) {
                 continue;
             }
 
             // How much the conflicting city count would change if cycle flipped
             // (added if currently unselected, removed if currently selected)
             int delta;
-            
+
             if (!is_used[i] && shared_cities_with_selected[i] > 0) {
-                delta = shared_cities_total[i] - 2*shared_cities_with_selected[i];
+                delta = shared_cities_total[i] - 2 * shared_cities_with_selected[i];
                 consider_cand(i, delta);
             }
 
             else if (is_used[i]) {
-                delta = -(shared_cities_total[i] - 2*shared_cities_with_selected[i]);
+                delta = -(shared_cities_total[i] - 2 * shared_cities_with_selected[i]);
                 consider_cand(i, delta);
             }
         }
@@ -411,17 +392,17 @@ std::vector<int> improve_e_set(
         }
 
         // "Freeze" the just-added cycle so it doesn't get instantly resersed-flipped
-        freeze_iters_left[best_cand_idx] = MAX_FROZEN_ITERS;
+        freeze_iters_left[*best_cand_idx] = max_frozen_iters;
 
         // Check if iteration set new record for lowest (best) conflictingCitiesCount
         if (conflicting_cities_count < best_conflicting_cities_count) {
-            consecutive_non_improving_iter_count = 0;
+            consecutive_stagnant_iter_count = 0;
             best_conflicting_cities_count = conflicting_cities_count;
             best_is_used = is_used;
         }
 
         else {
-            consecutive_non_improving_iter_count++;
+            consecutive_stagnant_iter_count++;
         }
     }
 
@@ -429,7 +410,7 @@ std::vector<int> improve_e_set(
     std::vector<int> best_indices;
     for (std::size_t i = 0; i < num_cycles; i++) {
         if (best_is_used[i]) {
-            best_indices.push_back(i);
+            best_indices.push_back(static_cast<int>(i));
         }
     }
 
@@ -465,7 +446,7 @@ ESet select_e_set(
     std::uniform_int_distribution<int> distrib(0, static_cast<int>(cycles.size() - 1));
     std::size_t anchor_cycle_idx = distrib(rng);
 
-    std::vector<size_t> initial_cycles_idxs = { anchor_cycle_idx };
+    std::vector<std::size_t> initial_cycles_idxs = {anchor_cycle_idx};
 
     std::uniform_int_distribution<int> coin_flip(0, 1);
 
@@ -481,16 +462,18 @@ ESet select_e_set(
         bool is_smaller_than_anchor =
             cycle_half_edge_counts[anchor_cycle_idx] > cycle_half_edge_counts[i];
 
-        if (shares_city_with_anchor && is_smaller_than_anchor
-            && coin_flip(rng) == 0) {
+        if (shares_city_with_anchor && is_smaller_than_anchor && coin_flip(rng) == 0) {
             initial_cycles_idxs.push_back(i);
         }
     }
 
     std::vector<int> best_indices = improve_e_set(
-        anchor_cycle_idx, initial_cycles_idxs,
-        weights.shared_cities_total, weights.shared_cities_between,
-        cycle_half_edge_counts, rng);
+        anchor_cycle_idx,
+        initial_cycles_idxs,
+        weights.shared_cities_total,
+        weights.shared_cities_between,
+        MAX_CONSECUTIVE_STAGNANT_ITERS,
+        MAX_FROZEN_ITERS);
 
     ESet e_set;
     for (std::size_t idx : best_indices) {
@@ -516,8 +499,7 @@ EdgeSet build_initial_offspring_edges(const Edges &edges_a, const ESet &e_set) {
 
             if (te.parent == Parent::A) {
                 initial_offspring_edges.erase(normalize_edge(te.edge));
-            }
-            else {
+            } else {
                 initial_offspring_edges.insert(normalize_edge(te.edge));
             }
         }
@@ -528,8 +510,7 @@ EdgeSet build_initial_offspring_edges(const Edges &edges_a, const ESet &e_set) {
 
 // Decomposes the list of edges ("initial_offspring_edges") into a list of subtours
 Subtours decompose_edges_into_subtours(
-    const EdgeSet &initial_offspring_edges,
-    const std::size_t &num_cities) {
+    const EdgeSet &initial_offspring_edges, const std::size_t &num_cities) {
 
     std::vector<std::vector<std::size_t>> adj(num_cities);
 
@@ -565,19 +546,18 @@ Subtours decompose_edges_into_subtours(
 
         // Retrieve newly found subtour
         while (start_city != curr_city) {
-            subtour.push_back({ prev_city, curr_city });
+            subtour.push_back({prev_city, curr_city});
 
             is_visited[curr_city] = true;
 
-            std::size_t next_city = (adj[curr_city][0] == prev_city)
-                ? adj[curr_city][1]
-                : adj[curr_city][0];
+            std::size_t next_city =
+                (adj[curr_city][0] == prev_city) ? adj[curr_city][1] : adj[curr_city][0];
 
             prev_city = curr_city;
             curr_city = next_city;
         }
 
-        subtour.push_back({ prev_city, curr_city });
+        subtour.push_back({prev_city, curr_city});
         subtours.push_back(subtour);
     }
 
@@ -599,8 +579,8 @@ std::size_t get_shortest_subtour_idx(const Subtours &subtours) {
 
 // Merges all subtours into a single valid type-edges tour, repeatedly taking the shortest subtour,
 // and merging it wwhichever other subtour gives the cheapest merge,
-// from the merged subtour, cut 2 edges (one from each subtour), and adds 2 (cheapest previously cut edges merge),
-// this process resumes until one subtour is left (they reduce by merging together)
+// from the merged subtour, cut 2 edges (one from each subtour), and adds 2 (cheapest previously cut
+// edges merge), this process resumes until one subtour is left (they reduce by merging together)
 Edges merge_subtours_to_tour(Subtours subtours, const Cities &cities) {
     while (subtours.size() > 1) {
         const std::size_t shortest_subtour_idx = get_shortest_subtour_idx(subtours);
@@ -629,13 +609,14 @@ Edges merge_subtours_to_tour(Subtours subtours, const Cities &cities) {
                 // (excluding shortest subtour)
                 for (const Edge &edge2 : subtours[i]) {
 
-                    // 3rd, 4th edges (e'', e''') - constructed from: length-wise cheapest edges 1&2 merge
+                    // 3rd, 4th edges (e'', e''') - constructed from: length-wise cheapest edges 1&2
+                    // merge
 
-                    const Edge edge3_a = { edge1.from, edge2.from };
-                    const Edge edge4_a = { edge1.to, edge2.to };
+                    const Edge edge3_a = {edge1.from, edge2.from};
+                    const Edge edge4_a = {edge1.to, edge2.to};
 
-                    const Edge edge3_b = { edge1.from, edge2.to };
-                    const Edge edge4_b = { edge1.to, edge2.from };
+                    const Edge edge3_b = {edge1.from, edge2.to};
+                    const Edge edge4_b = {edge1.to, edge2.from};
 
                     // Compute edges 3&4's combined distance cost for later comparasion
                     const double link_cost1 = edge_len(edge3_a, cities) + edge_len(edge4_a, cities);
@@ -653,8 +634,7 @@ Edges merge_subtours_to_tour(Subtours subtours, const Cities &cities) {
 
                         edge3 = edge3_a;
                         edge4 = edge4_a;
-                    } 
-                    else {
+                    } else {
                         link_cost = link_cost2;
 
                         edge3 = edge3_b;
@@ -663,7 +643,7 @@ Edges merge_subtours_to_tour(Subtours subtours, const Cities &cities) {
 
                     // Smallest distance cost of edges 1&2 to be cut from "subtours"
                     const double cut_cost = edge_len(edge1, cities) + edge_len(edge2, cities);
-                    
+
                     const double cost_change = link_cost - cut_cost;
 
                     if (cost_change < best_cost_change) {
@@ -682,14 +662,16 @@ Edges merge_subtours_to_tour(Subtours subtours, const Cities &cities) {
 
         // Build type "Edges" offspring, later turned into a type "Tour" offspring
         Edges offspring_edges = subtours[shortest_subtour_idx];
-        offspring_edges.reserve(subtours[shortest_subtour_idx].size() + subtours[best_cand_idx].size());
+        offspring_edges.reserve(
+            subtours[shortest_subtour_idx].size() + subtours[best_cand_idx].size());
 
         // Merge "subtours[shortest_subtour_idx]", and "subtours[best_cand_idx]"
         offspring_edges.append_range(subtours[best_cand_idx]);
 
         // Cut edges 1&2 from merged subset
         std::erase_if(offspring_edges, [&](const Edge &edge) {
-             return normalize_edge(edge) == normalize_edge(best_edge1) || normalize_edge(edge) == normalize_edge(best_edge2); 
+            return normalize_edge(edge) == normalize_edge(best_edge1) ||
+                   normalize_edge(edge) == normalize_edge(best_edge2);
         });
 
         // Link edges 3&4 to merged subset
@@ -703,8 +685,9 @@ Edges merge_subtours_to_tour(Subtours subtours, const Cities &cities) {
         subtours[shortest_subtour_idx] = offspring_edges;
 
         // Remove the other subtour from the merged pair
-        // (subtours' order doesn't matter - so we're able to swap end subtour with wanted subtour to erase,
-        // and erase end-element in O(1), this avoid std::vector::erase's iterative O(n) slow approach)
+        // (subtours' order doesn't matter - so we're able to swap end subtour with wanted subtour
+        // to erase, and erase end-element in O(1), this avoid std::vector::erase's iterative O(n)
+        // slow approach)
         std::swap(subtours[best_cand_idx], subtours.back());
         subtours.pop_back();
     }
@@ -715,7 +698,7 @@ Edges merge_subtours_to_tour(Subtours subtours, const Cities &cities) {
 
 // Turn type-edges tour to a regular tour to return
 // e.g., { {1, 2}, {2, 4}, {4, 3}, {3, 1} } to { 1, 2, 4, 3 }
-Tour edges_to_tour(Edges tour_edges, const std::size_t &num_cities) {
+Tour edges_to_tour(const Edges &tour_edges, const std::size_t &num_cities) {
     std::vector<std::vector<std::size_t>> adj(num_cities);
 
     // Build an adjencency graph to find out which are which neighbors
@@ -737,9 +720,8 @@ Tour edges_to_tour(Edges tour_edges, const std::size_t &num_cities) {
     while (start_city != curr_city) {
         tour.push_back(curr_city);
 
-        std::size_t next_city = (adj[curr_city][0] == prev_city)
-            ? adj[curr_city][1]
-            : adj[curr_city][0];
+        std::size_t next_city =
+            (adj[curr_city][0] == prev_city) ? adj[curr_city][1] : adj[curr_city][0];
 
         prev_city = curr_city;
         curr_city = next_city;
@@ -748,14 +730,15 @@ Tour edges_to_tour(Edges tour_edges, const std::size_t &num_cities) {
     return tour;
 }
 
-}  // Closing namespace Eax::Detail
+}  // namespace Eax::Detail
 
 namespace Eax {
 
 using namespace Detail;
 
 // TODO: comment here
-std::tuple<Edges, AbCycles, AbCycleWeights, std::vector<int>> init_crossover(const Tour &parent_a, const Tour &parent_b, const Cities &cities) {
+std::tuple<Edges, AbCycles, AbCycleWeights, std::vector<int>>
+init_crossover(const Tour &parent_a, const Tour &parent_b, const Cities &cities) {
     // STEP 1: build temporary AB-graph to produce AB-cycles
 
     Edges edges_a = get_edges(parent_a);
@@ -775,27 +758,37 @@ std::tuple<Edges, AbCycles, AbCycleWeights, std::vector<int>> init_crossover(con
     AbCycleWeights weights = build_ab_cycle_weights(cycles, cities.size());
     std::vector<int> cycle_half_edge_counts = get_cycle_half_edge_counts(cycles);
 
-    return { std::move(edges_a), std::move(cycles), std::move(weights), std::move(cycle_half_edge_counts) };
+    return {
+        std::move(edges_a),
+        std::move(cycles),
+        std::move(weights),
+        std::move(cycle_half_edge_counts)};
 }
 
 // TODO: change comment:
 // Performs Edge Assembly Crossover (EAX) between 2 parent tours,
 // and returns the resulting offspring (child)
-Tour crossover(const AbCycles &cycles, const Edges &edges_a, const Cities &cities, const AbCycleWeights &weights, const std::vector<int> &cycle_half_edge_counts, std::mt19937_64 &rng) {
+Tour crossover(
+    const AbCycles &cycles,
+    const Edges &edges_a,
+    const Cities &cities,
+    const AbCycleWeights &weights,
+    const std::vector<int> &cycle_half_edge_counts,
+    std::mt19937_64 &rng) {
 
     // STEP 3: select a subset (E-set) of AB-cycles to form the E-set for the crossover operation
 
     const ESet e_set = select_e_set(cycles, weights, cycle_half_edge_counts, rng);
 
-    // STEP 4: Generate an intermediate solution from parent-A by removing the edges of E-set's A-edges and
+    // STEP 4: Generate an intermediate solution from parent-A by removing the edges of E-set's
+    // A-edges and
     //         adding the edges of E-set's B-edges
 
     const EdgeSet initial_offspring_edges = build_initial_offspring_edges(edges_a, e_set);
 
     // STEP 5: connect all sub-tours into a tour to generate a valid offspring
 
-    Subtours subtours = decompose_edges_into_subtours(initial_offspring_edges,
-        cities.size());
+    Subtours subtours = decompose_edges_into_subtours(initial_offspring_edges, cities.size());
 
     const Edges offspring_edges = merge_subtours_to_tour(std::move(subtours), cities);
 
@@ -804,4 +797,4 @@ Tour crossover(const AbCycles &cycles, const Edges &edges_a, const Cities &citie
     return offspring;
 }
 
-}  // Closing namespace Eax
+}  // namespace Eax

@@ -64,33 +64,25 @@ using TaggedEdges = std::vector<TaggedEdge>;
 using AbGraph = std::vector<std::vector<TaggedEdge>>;
 using AbCycle = std::vector<TaggedEdge>;
 using AbCycles = std::vector<AbCycle>;  // Full set of AB-cycles from the AB-graph
-using ESet = std::vector<AbCycle>;  // Selected subset forming the E-set
+using ESet = std::vector<AbCycle>;      // Selected subset forming the E-set
 using Subtours = std::vector<Edges>;
 
 // Extracts all edges from a tour
 Edges get_edges(const Tour &tour);
 
-// Returns the edges unique to the source collection
-TaggedEdges tag_edges_with_parent(
-    const Edges &edges_a,
-    const Edges &edges_b);
-
 // Tags each edge with its originating parent
-AbGraph build_ab_graph(
-    const TaggedEdges &edges,
-    std::size_t num_cities);
+TaggedEdges tag_edges_with_parent(const Edges &edges_a, const Edges &edges_b);
+
+// Builds the AB adjacency graph used to search for AB-cycles
+AbGraph build_ab_graph(const TaggedEdges &edges, std::size_t num_cities);
 
 // Transforms the AB-graph into AB-cycles by repeatedly walking an alternating
 // path between A/B edges from an arbitrary edge until returning to the starting
 // city
-AbCycles build_ab_cycles(
-    const AbGraph &graph,
-    const TaggedEdges &edges);
+AbCycles build_ab_cycles(const AbGraph &graph, const TaggedEdges &edges);
 
 // Builds measurements (weights) for each cycle based on their relationships
-AbCycleWeights build_ab_cycle_weights(
-    const AbCycles &cycles,
-    const std::size_t num_cities);
+AbCycleWeights build_ab_cycle_weights(const AbCycles &cycles, const std::size_t num_cities);
 
 // Gets half the number of edges for each cycle
 std::vector<int> get_cycle_half_edge_counts(const AbCycles &cycles);
@@ -102,17 +94,15 @@ ESet select_e_set(
     const std::vector<int> &cycle_half_edge_counts,
     std::mt19937_64 &rng);
 
-// Minimizes number of conflicting cities in the E-set 
+// Minimizes number of conflicting cities in the E-set
 // by iteratively adding/removing cycles
 std::vector<int> improve_e_set(
     std::size_t anchor_cycle_idx,
     const std::vector<std::size_t> &initial_cycles_idxs,
     const std::vector<int> &shared_cities_total,
     const std::vector<std::vector<int>> &shared_cities_between,
-    const std::vector<int> &cycle_half_edge_counts,
-    std::mt19937_64 &rng,
-    const int MAX_CONSECUTIVE_NON_IMPROVING_ITERS_COUNT = 20,
-    const int MAX_FROZEN_ITERS = 10);
+    const int max_stagnant_iters,
+    const int max_frozen_iters);
 
 // Returns the canonical representation of an edge
 EdgeKey normalize_edge(const Edge &edge);
@@ -123,10 +113,8 @@ bool contains_edge(const EdgeSet &edge_set, const Edge &edge);
 // Builds a hash set for fast edge lookups
 EdgeSet build_edge_set(const Edges &edges);
 
-// Returns the edges unique to the source collection.
-Edges get_unique_edges(
-    const Edges &src,
-    const Edges &other);
+// Returns the edges unique to the source collection
+Edges get_unique_edges(const Edges &src, const Edges &other);
 
 // Given endpoint of an edge, returns other endpoint
 std::size_t get_other_endpoint(const TaggedEdge &te, std::size_t curr_city);
@@ -137,9 +125,7 @@ TaggedEdgeSet build_unused_edges_set(const TaggedEdges &edges);
 
 // Selects a subset (E-set) of AB-cycles randomly
 ESet select_e_set_rand(
-    const AbCycles &cycles,
-    std::mt19937_64 &rng,
-    const double INCLUSION_PROB = 0.5);
+    const AbCycles &cycles, std::mt19937_64 &rng, const double INCLUSION_PROB = 0.5);
 
 // Returns an intermediate, invalid solution represented as an edge-set
 // by removing A-edges that are in the E-set,
@@ -148,31 +134,37 @@ EdgeSet build_initial_offspring_edges(const Edges &edges_a, const ESet &e_set);
 
 // Decompose the list of edges ("initial_offspring_edges") into a list of subtours
 Subtours decompose_edges_into_subtours(
-    const EdgeSet &initial_offspring_edges,
-    const std::size_t &num_cities);
+    const EdgeSet &initial_offspring_edges, const std::size_t &num_cities);
 
 // Merges all subtours into a single valid type-edges tour, repeatedly taking the shortest subtour,
 // and merging it wwhichever other subtour gives the cheapest merge,
-// from the merged subtour, cut 2 edges (one from each subtour), and adds 2 (cheapest previously cut edges merge),
-// this process resumes until one subtour is left (they reduce by merging together)
+// from the merged subtour, cut 2 edges (one from each subtour), and adds 2 (cheapest previously cut
+// edges merge), this process resumes until one subtour is left (they reduce by merging together)
 Edges merge_subtours_to_tour(Subtours subtours, const Cities &cities);
 
 // Turn type-edges tour to a regular tour to return
 // e.g., { {1, 2}, {2, 4}, {4, 3}, {3, 1} } to { 1, 2, 4, 3 }
-Tour edges_to_tour(Edges tour_edges, const std::size_t &num_cities);
+Tour edges_to_tour(const Edges &tour_edges, const std::size_t &num_cities);
 
-}  // Closing namespace Eax::Detail
+}  // namespace Eax::Detail
 
 namespace Eax {
 
 using namespace Detail;
 
 // TODO: comment here
-std::tuple<Edges, AbCycles, AbCycleWeights, std::vector<int>> init_crossover(const Tour &parent_a, const Tour &parent_b, const Cities &cities);
+std::tuple<Edges, AbCycles, AbCycleWeights, std::vector<int>>
+init_crossover(const Tour &parent_a, const Tour &parent_b, const Cities &cities);
 
 // TODO: change comment:
 // Performs Edge Assembly Crossover (EAX) between 2 parent tours,
 // and returns the resulting offspring (child)
-Tour crossover(const AbCycles &cycles, const Edges &edges_a, const Cities &cities, const AbCycleWeights &weights, const std::vector<int> &cycle_half_edge_counts, std::mt19937_64 &rng);
+Tour crossover(
+    const AbCycles &cycles,
+    const Edges &edges_a,
+    const Cities &cities,
+    const AbCycleWeights &weights,
+    const std::vector<int> &cycle_half_edge_counts,
+    std::mt19937_64 &rng);
 
-}  // Closing namespace Eax
+}  // namespace Eax

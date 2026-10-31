@@ -9,7 +9,7 @@ FetchContent_Declare(asio
     GIT_REPOSITORY https://github.com/chriskohlhoff/asio.git
     GIT_TAG        asio-1-30-2)
 
-set(BOOST_INCLUDE_LIBRARIES algorithm)
+set(BOOST_INCLUDE_LIBRARIES algorithm container_hash)
 set(BOOST_ENABLE_CMAKE ON)
 
 FetchContent_Declare(boost
@@ -97,6 +97,7 @@ set_source_files_properties(src/main.cpp PROPERTIES
 target_link_libraries(tsp_solver PRIVATE
     nlohmann_json::nlohmann_json
     Boost::algorithm
+    Boost::container_hash
     CURL::libcurl
     dotenv)
 
