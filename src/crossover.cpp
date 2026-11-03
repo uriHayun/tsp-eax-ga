@@ -210,22 +210,6 @@ AbCycles build_ab_cycles(const AbGraph &graph, const TaggedEdges &edges) {
     return cycles;
 }
 
-// Selects a subset (E-set) of AB-cycles randomly
-ESet select_e_set_rand(const AbCycles &cycles, std::mt19937_64 &rng, const double INCLUSION_PROB) {
-
-    std::uniform_real_distribution<double> distrib(0.0, 1.0);
-
-    ESet e_set;
-
-    for (const AbCycle &cycle : cycles) {
-        if (distrib(rng) < INCLUSION_PROB) {
-            e_set.push_back(cycle);
-        }
-    }
-
-    return e_set;
-}
-
 // Builds measurements (weights) for each cycle based on their relationships
 AbCycleWeights build_ab_cycle_weights(const AbCycles &cycles, const std::size_t num_cities) {
 
