@@ -1,19 +1,17 @@
-local function log(s) love.filesystem.append("debug.log", os.date("%X ") .. s .. "\n") end
+local mercator = require("pseudo_mercator")
 
-local mercator = require "pseudo_mercator"
+local https = require("https")
+local sha1 = require("sha1")
+local url = require("socket.url")
 
-local https = require "https"
-local sha1 = require "sha1"
-local url = require "socket.url"
-
-local M =  {}
+local M = {}
 
 local MAP_H, MAP_W = 640, 640
 local MAP_SCALE = 2
 
-local MAP_SIZE_ZOOM0 = 256  -- Points-wide for zoom 0
-local MAX_ZOOM = 18         -- The max zoom Google Maps Static API allows
-local PADDING = 1.05        -- Extra 5% room - so no city could lie on map edge
+local MAP_SIZE_ZOOM0 = 256 -- Points-wide for zoom 0
+local MAX_ZOOM = 18 -- The max zoom Google Maps Static API allows
+local PADDING = 1.05 -- Extra 5% room - so no city could lie on map edge
 
 local function build_markers(cities)
     -- Small, red markers (pins) for each city of the TSP
@@ -28,8 +26,10 @@ end
 
 local get_bounding_map_frame = function(cities_ordered_pair)
     local bounds = {
-        min_x = math.huge,  max_x = -math.huge,
-        min_y = math.huge,  max_y = -math.huge,
+        min_x = math.huge,
+        max_x = -math.huge,
+        min_y = math.huge,
+        max_y = -math.huge,
     }
 
     for _, city in ipairs(cities_ordered_pair) do
@@ -50,11 +50,12 @@ local function get_map_center(bounds)
 end
 
 local function get_map_zoom(bounds)
-    local frame_w, frame_h = (bounds.max_x - bounds.min_x) * PADDING, (bounds.max_y - bounds.min_y) * PADDING
+    local frame_w, frame_h =
+        (bounds.max_x - bounds.min_x) * PADDING, (bounds.max_y - bounds.min_y) * PADDING
 
     -- Begin most zoomed in, zoom out until all cities are in padded frame
     for zoom = MAX_ZOOM, 0, -1 do
-        local map_size = MAP_SIZE_ZOOM0 * 2^zoom
+        local map_size = MAP_SIZE_ZOOM0 * 2 ^ zoom
 
         if frame_w * map_size <= MAP_W and frame_h * map_size <= MAP_H then
             return zoom
@@ -70,8 +71,9 @@ function M.get_view(cities_coords)
     local center_lat, center_lng = get_map_center(bounds)
 
     return {
-        center_lng = center_lng, center_lat = center_lat,
-        zoom = get_map_zoom(bounds)
+        center_lng = center_lng,
+        center_lat = center_lat,
+        zoom = get_map_zoom(bounds),
     }
 end
 
@@ -98,13 +100,17 @@ local function sign_url(input_url, secret)
     return input_url .. "&signature=" .. encoded
 end
 
-local max_url_len = 16384  -- 16 KB
+local max_url_len = 16384 -- 16 KB
 
 function M.build_url(cities, view)
-    local api_key = os.getenv("GOOGLE_MAPS_STATIC_API_KEY_PRIMARY") or os.getenv("GOOGLE_MAPS_STATIC_API_KEY_ALTERNATIVE") or ""
+    local api_key = os.getenv("GOOGLE_MAPS_STATIC_API_KEY_PRIMARY")
+        or os.getenv("GOOGLE_MAPS_STATIC_API_KEY_ALTERNATIVE")
+        or ""
 
-    if api_key == "" then  -- Using api_key = ... or "" - so key cannot be nil
-        error("GOOGLE_MAPS_STATIC_API_KEY_PRIMARY/GOOGLE_MAPS_STATIC_API_KEY_ALTERNATIVE environment variables weren't found")
+    if api_key == "" then -- Using api_key = ... or "" - so key cannot be nil
+        error(
+            "GOOGLE_MAPS_STATIC_API_KEY_PRIMARY/GOOGLE_MAPS_STATIC_API_KEY_ALTERNATIVE environment variables weren't found"
+        )
     end
 
     local map_params = {
@@ -114,7 +120,7 @@ function M.build_url(cities, view)
         scale = MAP_SCALE,
         markers = build_markers(cities),
         maptype = "roadmap",
-        key = api_key
+        key = api_key,
     }
 
     local map_img_url = "https://maps.googleapis.com/maps/api/staticmap?"
@@ -129,11 +135,14 @@ function M.build_url(cities, view)
         error("GOOGLE_MAPS_STATIC_API_SIGNING_SECRET environment variable wasn't found")
     end
 
-    local signed_url = sign_url(map_img_url:gsub("&$", ""),  -- ":gsub" removes trailing "&" if present
-        signing_secret)
+    local signed_url = sign_url(
+        map_img_url:gsub("&$", ""), -- ":gsub" removes trailing "&" if present
+        signing_secret
+    )
 
     if #signed_url > max_url_len then
-        return nil, string.format("URL too long (> %d): too many cities for one map URL", max_url_len)
+        return nil,
+            string.format("URL too long (> %d): too many cities for one map URL", max_url_len)
     end
 
     return signed_url
@@ -144,17 +153,24 @@ local http_ok = 200
 local png_sig = "\137PNG\r\n\26\n"
 
 -- Returns whether an image is of type PNG by checking if its 1st 8 bytes are the PNG image's signature
-local is_png = function(img) return img:sub(1, 8) ==  png_sig end
+local is_png = function(img)
+    return img:sub(1, 8) == png_sig
+end
 
 function M.fetch(url_map)
-    log("Map requesting begins")
+    print("Map requesting begins")
 
     local valid, status_code, body = pcall(https.request, url_map)
     if not valid then
         return nil, "Request error: " .. tostring(status_code)
     end
 
-    log("Map request done: status=" .. tostring(status_code) .. " bytes=" .. tostring(body and #body))
+    print(
+        "Map request done: status="
+            .. tostring(status_code)
+            .. " bytes="
+            .. tostring(body and #body)
+    )
 
     if status_code ~= http_ok then
         if is_png(tostring(body)) then
@@ -180,7 +196,7 @@ function M.get_map_placement(map_img)
     -- largest factor which fits the whole image
     local scale = math.min(win_w / img_w, win_h / img_h)
 
-    local offset_x, offset_y = (win_w - img_w*scale) / 2, (win_h - img_h*scale) / 2
+    local offset_x, offset_y = (win_w - img_w * scale) / 2, (win_h - img_h * scale) / 2
 
     return scale, offset_x, offset_y
 end

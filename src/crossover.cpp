@@ -200,8 +200,8 @@ AbCycles build_ab_cycles(const AbGraph &graph, const TaggedEdges &edges) {
                 break;
             }
 
-            assert(
-                found_next && "AB-cycle failed to close: dead end before returning to start city");
+            assert(found_next &&
+                   "AB-cycle failed to close: dead end before returning to start city");
         }
 
         cycles.push_back(std::move(curr_cycle));
@@ -261,13 +261,12 @@ AbCycleWeights build_ab_cycle_weights(const AbCycles &cycles, const std::size_t 
 
 // Minimizes number of conflicting cities in the E-set
 // by iteratively adding/removing cycles
-std::vector<int> improve_e_set(
-    std::size_t anchor_cycle_idx,
-    const std::vector<std::size_t> &initial_cycles_idxs,
-    const std::vector<int> &shared_cities_total,
-    const std::vector<std::vector<int>> &shared_cities_between,
-    const int max_stagnant_iters,
-    const int max_frozen_iters) {
+std::vector<int> improve_e_set(std::size_t anchor_cycle_idx,
+                               const std::vector<std::size_t> &initial_cycles_idxs,
+                               const std::vector<int> &shared_cities_total,
+                               const std::vector<std::vector<int>> &shared_cities_between,
+                               const int max_stagnant_iters,
+                               const int max_frozen_iters) {
 
     const std::size_t num_cycles = shared_cities_total.size();
 
@@ -417,11 +416,10 @@ std::vector<int> get_cycle_half_edge_counts(const AbCycles &cycles) {
 // Starts from a random anchor cycle and adds cycles build around it to build an initial E-set,
 // then improves it by iteratively adding/removing cycles
 // to minimize the number of conflicting cities in the E-set ("improve_e_set" function)
-ESet select_e_set(
-    const AbCycles &cycles,
-    const AbCycleWeights &weights,
-    const std::vector<int> &cycle_half_edge_counts,
-    std::mt19937_64 &rng) {
+ESet select_e_set(const AbCycles &cycles,
+                  const AbCycleWeights &weights,
+                  const std::vector<int> &cycle_half_edge_counts,
+                  std::mt19937_64 &rng) {
 
     if (cycles.empty()) {
         return {};
@@ -451,13 +449,12 @@ ESet select_e_set(
         }
     }
 
-    std::vector<int> best_indices = improve_e_set(
-        anchor_cycle_idx,
-        initial_cycles_idxs,
-        weights.shared_cities_total,
-        weights.shared_cities_between,
-        MAX_CONSECUTIVE_STAGNANT_ITERS,
-        MAX_FROZEN_ITERS);
+    std::vector<int> best_indices = improve_e_set(anchor_cycle_idx,
+                                                  initial_cycles_idxs,
+                                                  weights.shared_cities_total,
+                                                  weights.shared_cities_between,
+                                                  MAX_CONSECUTIVE_STAGNANT_ITERS,
+                                                  MAX_FROZEN_ITERS);
 
     ESet e_set;
     for (std::size_t idx : best_indices) {
@@ -493,8 +490,8 @@ EdgeSet build_initial_offspring_edges(const Edges &edges_a, const ESet &e_set) {
 }
 
 // Decomposes the list of edges ("initial_offspring_edges") into a list of subtours
-Subtours decompose_edges_into_subtours(
-    const EdgeSet &initial_offspring_edges, const std::size_t &num_cities) {
+Subtours decompose_edges_into_subtours(const EdgeSet &initial_offspring_edges,
+                                       const std::size_t &num_cities) {
 
     std::vector<std::vector<std::size_t>> adj(num_cities);
 
@@ -646,8 +643,8 @@ Edges merge_subtours_to_tour(Subtours subtours, const Cities &cities) {
 
         // Build type "Edges" offspring, later turned into a type "Tour" offspring
         Edges offspring_edges = subtours[shortest_subtour_idx];
-        offspring_edges.reserve(
-            subtours[shortest_subtour_idx].size() + subtours[best_cand_idx].size());
+        offspring_edges.reserve(subtours[shortest_subtour_idx].size() +
+                                subtours[best_cand_idx].size());
 
         // Merge "subtours[shortest_subtour_idx]", and "subtours[best_cand_idx]"
         offspring_edges.append_range(subtours[best_cand_idx]);
@@ -742,23 +739,21 @@ init_crossover(const Tour &parent_a, const Tour &parent_b, const Cities &cities)
     AbCycleWeights weights = build_ab_cycle_weights(cycles, cities.size());
     std::vector<int> cycle_half_edge_counts = get_cycle_half_edge_counts(cycles);
 
-    return {
-        std::move(edges_a),
-        std::move(cycles),
-        std::move(weights),
-        std::move(cycle_half_edge_counts)};
+    return {std::move(edges_a),
+            std::move(cycles),
+            std::move(weights),
+            std::move(cycle_half_edge_counts)};
 }
 
 // TODO: change comment:
 // Performs Edge Assembly Crossover (EAX) between 2 parent tours,
 // and returns the resulting offspring (child)
-Tour crossover(
-    const AbCycles &cycles,
-    const Edges &edges_a,
-    const Cities &cities,
-    const AbCycleWeights &weights,
-    const std::vector<int> &cycle_half_edge_counts,
-    std::mt19937_64 &rng) {
+Tour crossover(const AbCycles &cycles,
+               const Edges &edges_a,
+               const Cities &cities,
+               const AbCycleWeights &weights,
+               const std::vector<int> &cycle_half_edge_counts,
+               std::mt19937_64 &rng) {
 
     // STEP 3: select a subset (E-set) of AB-cycles to form the E-set for the crossover operation
 

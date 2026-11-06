@@ -1,5 +1,5 @@
-local json = require "json"
-local socket = require "socket"
+local json = require("json")
+local socket = require("socket")
 
 local client
 
@@ -12,8 +12,8 @@ function M.connect(port_num)
 
     client = socket.tcp()
 
-    -- If not connected within X seconds, throw an error
-    client:settimeout(20)
+    -- If not connected within N seconds, throw an error
+    client:settimeout(15)
 
     local valid, err = client:connect(address, port_num)
     if not valid then
@@ -27,8 +27,6 @@ function M.fetch_cities()
         error("Failed to receive cities: " .. tostring(err))
     end
 
-    love.filesystem.append("debug.log", "raw cities line: " .. buffer:sub(1, 300) .. "\n")
-
     local valid, decoded = pcall(json.decode, buffer)
     if not valid then
         error("Failed to parse JSON cities array: " .. tostring(decoded))
@@ -37,15 +35,29 @@ function M.fetch_cities()
     return decoded
 end
 
+local pending = ""
+
 function M.fetch_tour()
-    local buffer, err = client:receive("*l")
+    if not client then
+        return nil
+    end
+
+    local buffer, err, partial = client:receive("*l", pending)
     if not buffer then
         if err == "timeout" then
+            pending = partial
+            return nil
+        end
+        if err == "closed" then
+            pending = ""
+            M.close()
             return nil
         end
 
         error("Failed to receive tour: " .. err)
     end
+
+    pending = ""
 
     local valid, decoded = pcall(json.decode, buffer)
     if not valid then
@@ -59,6 +71,12 @@ function M.close()
     if client then
         client:close()
         client = nil
+    end
+end
+
+function M.ack()
+    if client then
+        client:send("\n")
     end
 end
 

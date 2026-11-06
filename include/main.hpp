@@ -50,14 +50,15 @@ void improve_tour(Tour &tour, const Cities &cities);
 Tours build_init_pop(const Cities &cities, std::mt19937_64 &rng);
 Tour rand_tour(std::mt19937_64 &rng, const int N);
 double fitness(const Tour &tour, const Cities &cities);
-std::size_t tourney_select(
-    const Tours &pop,
-    const Cities &cities,
-    const std::vector<double> &fitness_scores,
-    std::mt19937_64 &rng,
-    const int NUM_CANDS = 3);
+std::size_t tourney_select(const Tours &pop,
+                           const Cities &cities,
+                           const std::vector<double> &fitness_scores,
+                           std::mt19937_64 &rng,
+                           const int NUM_CANDS = 3);
 std::tuple<Tours, std::vector<double>, std::mt19937_64> init_ga(const Cities &cities);
-Tour run_gen(
-    Tours &pop, std::vector<double> &fitness_scores, std::mt19937_64 &rng, const Cities &cities);
+Tour run_gen(Tours &pop,
+             std::vector<double> &fitness_scores,
+             std::mt19937_64 &rng,
+             const Cities &cities);
 
 }  // namespace Tsp::Ga

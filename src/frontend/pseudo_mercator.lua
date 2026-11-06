@@ -27,7 +27,7 @@ end
 
 function M.unproject(x, y)
     local lng = x * 360 - 180
-    local lat = math.deg(2 * math.atan(math.exp((0.5 - y) * 2 * math.pi)) - math.pi/2)
+    local lat = math.deg(2 * math.atan(math.exp((0.5 - y) * 2 * math.pi)) - math.pi / 2)
 
     return lat, lng
 end

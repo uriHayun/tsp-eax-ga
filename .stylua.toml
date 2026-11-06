@@ -1,0 +1,14 @@
+syntax = "LuaJIT"
+
+# Max line width
+column_width = 100
+
+# Indentation
+indent_type = "Spaces"
+indent_width = 4
+
+# Line endings
+line_endings = "Unix"
+
+# Strings
+quote_style = "AutoPreferDouble"

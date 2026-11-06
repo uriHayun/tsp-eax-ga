@@ -19,57 +19,53 @@
 // IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-
 #include "whereami++.hpp"
 #include "whereami.h"
 #include <utility>
 
-
-using whereami_func_t = int (*)(char * out, int capacity, int * dirname_length);
-
+using whereami_func_t = int (*)(char *out, int capacity, int *dirname_length);
 
 static std::string whereami_path(whereami_func_t whereami_func) {
-	const auto length = whereami_func(nullptr, 0, nullptr);
-	if(length == -1)
-		return "";
+    const auto length = whereami_func(nullptr, 0, nullptr);
+    if (length == -1)
+        return "";
 
-	std::string ret(length, '\0');
-	whereami_func(&ret[0], length, nullptr);
-	return ret;
+    std::string ret(length, '\0');
+    whereami_func(&ret[0], length, nullptr);
+    return ret;
 }
 
 static std::pair<std::string, std::string> whereami_segmented(whereami_func_t whereami_func) {
-	const auto length = whereami_func(nullptr, 0, nullptr);
-	if(length == -1)
-		return {"", ""};
+    const auto length = whereami_func(nullptr, 0, nullptr);
+    if (length == -1)
+        return {"", ""};
 
-	int path_length;
-	std::string buf(length, '\0');
-	whereami_func(&buf[0], length, &path_length);
-	return {{buf.c_str(), static_cast<std::size_t>(path_length)}, &buf[path_length + 1]};
+    int path_length;
+    std::string buf(length, '\0');
+    whereami_func(&buf[0], length, &path_length);
+    return {{buf.c_str(), static_cast<std::size_t>(path_length)}, &buf[path_length + 1]};
 }
 
-
 std::string whereami::executable_path() {
-	return whereami_path(wai_getExecutablePath);
+    return whereami_path(wai_getExecutablePath);
 }
 
 std::string whereami::module_path() {
-	return whereami_path(wai_getModulePath);
+    return whereami_path(wai_getModulePath);
 }
 
 std::string whereami::executable_name() {
-	return whereami_segmented(wai_getExecutablePath).second;
+    return whereami_segmented(wai_getExecutablePath).second;
 }
 
 std::string whereami::module_name() {
-	return whereami_segmented(wai_getModulePath).second;
+    return whereami_segmented(wai_getModulePath).second;
 }
 
 std::string whereami::executable_dir() {
-	return whereami_segmented(wai_getExecutablePath).first;
+    return whereami_segmented(wai_getExecutablePath).first;
 }
 
 std::string whereami::module_dir() {
-	return whereami_segmented(wai_getModulePath).first;
+    return whereami_segmented(wai_getModulePath).first;
 }

@@ -151,8 +151,12 @@ void run_ipc_server() {
         socket.set_option(tcp::no_delay(true));
 
         // Build & send once the cities array to LÖVE2D
+        std::println("Load cities");
         cities = Data::load_cities();
+
+        std::println("Try sending cities");
         asio::write(socket, asio::buffer(Ipc::cities_to_json(*cities)));
+        std::println("Cities sent");
     } catch (const std::system_error &e) {
         std::println(std::cerr, "TCP handshake failed: {}", e.what());
         return;
@@ -162,6 +166,7 @@ void run_ipc_server() {
     }
 
     try {
+        std::println("Initialize GA");
         auto [pop, fitness_scores, rng] = Ga::init_ga(*cities);
 
         std::size_t gen_count = 0;
@@ -170,6 +175,7 @@ void run_ipc_server() {
 
         // Temporary end-condition, later will benchmark/further check
         while (stagnant_gens < Config::MAX_STAGNANT_GENS && gen_count < Config::MAX_GEN_COUNT) {
+            std::println("Compute tour. Generation: {}", gen_count);
             Tour curr_tour = Ga::run_gen(pop, fitness_scores, rng, *cities);
             gen_count++;
 
@@ -184,7 +190,11 @@ void run_ipc_server() {
             }
 
             // Send the chosen tour to LÖVE2D to draw each generation
+            std::println("Try sending tour to Lua");
             asio::write(socket, asio::buffer(tour_to_json(curr_tour)));
+
+            char ack;
+            asio::read(socket, asio::buffer(&ack, 1));
         }
     } catch (const asio::system_error &e) {
         std::println(std::cerr, "LÖVE2D disconnected mid-simulation: {}", e.what());
@@ -502,6 +512,7 @@ Tours build_init_pop(const Cities &cities, std::mt19937_64 &rng) {
         Tour tour = greedy_tour(cities, rng);
         improve_tour(tour, cities);
         pop.push_back(std::move(tour));
+        std::println("Initial tour {}/{}", i + 1, Config::POP_SIZE);
     }
 
     return pop;

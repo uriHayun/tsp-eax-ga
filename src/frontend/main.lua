@@ -1,44 +1,52 @@
-local function log(s) love.filesystem.append("debug.log", os.date("%X ") .. s .. "\n") end
+local ipc = require("ipc")
+local map = require("map")
+local mercator = require("pseudo_mercator")
 
-local ipc = require "ipc"
-local map = require "map"
-local mercator = require "pseudo_mercator"
-
-local FALLBACK_PORT_NUM = 56767  -- Inside of IANA private/dynamic range (49152–65535)
+local FALLBACK_PORT_NUM = 56767 -- Inside of IANA private/dynamic range (49152–65535)
 
 function love.load(arg)
-    -- Debugging
-    print(love.filesystem.getSaveDirectory())
-
-    log("Load start!")
+    print("Lua started!")
     ipc.connect(tonumber(arg[1]) or FALLBACK_PORT_NUM)
-    log("Connected!")
 
     local cities_coords = ipc.fetch_cities()
-    log("Cities valid!" .. #cities_coords)
+    print("Cities valid!" .. #cities_coords)
     ipc.set_nonblocking()
 
     local view = map.get_view(cities_coords)
     MAP_IMG = assert(map.fetch(map.build_url(cities_coords, view)))
-    log("Map valid!")
+    print("Map valid!")
 
     SCALE, OFFSET_X, OFFSET_Y = map.get_map_placement(MAP_IMG)
 
     CITIES_ORDERED_PAIR = mercator.project_all(cities_coords)
-    log("Done loading")
+    print("Done loading")
 end
 
 local got_tour = false
+local ack_pending = false
 
 function love.update()
-    CURR_TOUR = ipc.fetch_tour() or CURR_TOUR
-    if CURR_TOUR and not got_tour then
-        got_tour = true
-        log("1st tour received!")
+    -- The previous tour was drawn last frame - so tell the backend to send the next one
+    if ack_pending then
+        ipc.ack()
+        ack_pending = false
+    end
+
+    local tour = ipc.fetch_tour()
+    if tour then
+        CURR_TOUR = tour
+        ack_pending = true
+
+        if not got_tour then
+            got_tour = true
+            print("1st tour received!")
+        end
     end
 end
 
 function love.draw()
+    print("Start drawing")
+
     -- Reset background color to white to avoid tinting stuff when drawing
     love.graphics.setColor(1, 1, 1)
 
@@ -47,7 +55,6 @@ function love.draw()
 
     -- Draw tour on map each generation
     if CURR_TOUR then
-
         local N = #CURR_TOUR
         local DARKEST = 0.25
         local BRIGHTEST = 1.0
@@ -60,7 +67,7 @@ function love.draw()
             local next_city = CITIES_ORDERED_PAIR[CURR_TOUR[i % N + 1] + 1]
 
             love.graphics.setColor(red, 0, 0)
-            love.graphics.line(city.x,city.y, next_city.x, next_city.y)
+            love.graphics.line(city.x, city.y, next_city.x, next_city.y)
 
             red = math.max(DARKEST, red - STEP)
         end
@@ -70,10 +77,11 @@ function love.draw()
 end
 
 function love.resize()
+    print("Resizing")
     SCALE, OFFSET_X, OFFSET_Y = map.get_map_placement(MAP_IMG)
 end
 
 function love.quit()
-    log("Quitting!")
+    print("Quitting!")
     ipc.close()
 end

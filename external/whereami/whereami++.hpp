@@ -19,20 +19,17 @@
 // IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-
 #pragma once
-
 
 #include <string>
 
-
 namespace whereami {
-	std::string executable_path();
-	std::string module_path();
+std::string executable_path();
+std::string module_path();
 
-	std::string executable_name();
-	std::string module_name();
+std::string executable_name();
+std::string module_name();
 
-	std::string executable_dir();
-	std::string module_dir();
-}
+std::string executable_dir();
+std::string module_dir();
+}  // namespace whereami
